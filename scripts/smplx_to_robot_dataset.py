@@ -23,7 +23,7 @@ import psutil
 import tracemalloc
 
 
-def check_memory(threshold_gb=30):  # adjust based on your available memory
+def check_memory(threshold_gb=5):  # adjust based on your available memory
     mem = psutil.virtual_memory()
     used_memory_gb = (mem.total - mem.available) / (1024 ** 3)
     available_memory_gb = mem.available / (1024 ** 3)
@@ -235,13 +235,14 @@ def main():
     
     
     print("new args_list:", len(args_list))
+    # print(args_list)
     
-    total_files = len(args_list)
-    print(f"Total number of files to process: {total_files}")
-    with mp.Pool(args.num_cpus) as pool:
-        pool.starmap(process_file, [args + (total_files, verbose) for args in args_list])
+    # total_files = len(args_list)
+    # print(f"Total number of files to process: {total_files}")
+    # with mp.Pool(args.num_cpus) as pool:
+    #     pool.starmap(process_file, [args + (total_files, verbose) for args in args_list])
 
-    print("Done. Saved to ", tgt_folder)
+    # print("Done. Saved to ", tgt_folder)
 
 
 if __name__ == "__main__":
