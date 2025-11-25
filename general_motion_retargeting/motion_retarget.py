@@ -161,12 +161,17 @@ class GeneralMotionRetargeting:
             for body_name in self.human_body_to_task1.keys():
                 task = self.human_body_to_task1[body_name]
                 pos, rot = human_data[body_name]
+                # print("*****", rot)
+                # rot = np.array([1, 0,0,0])
+
                 task.set_target(mink.SE3.from_rotation_and_translation(mink.SO3(rot), pos))
         
         if self.use_ik_match_table2:
             for body_name in self.human_body_to_task2.keys():
                 task = self.human_body_to_task2[body_name]
                 pos, rot = human_data[body_name]
+                # print("-------", rot.shape)
+                # rot = np.array([1, 0,0,0])
                 task.set_target(mink.SE3.from_rotation_and_translation(mink.SO3(rot), pos))
             
             
@@ -178,8 +183,9 @@ class GeneralMotionRetargeting:
             # Solve the IK problem
             curr_error = self.error1()
             dt = self.configuration.model.opt.timestep
+            # print("****", dt)
             vel1 = mink.solve_ik(
-                self.configuration, self.tasks1, dt, self.solver, self.damping, self.ik_limits
+                self.configuration, self.tasks1, dt, self.solver, self.damping, safety_break=True, limits=self.ik_limits
             )
             self.configuration.integrate_inplace(vel1, dt)
             next_error = self.error1()
@@ -216,12 +222,13 @@ class GeneralMotionRetargeting:
                 num_iter += 1
                 
             
-        return self.configuration.data.qpos.copy()
+        return self.configuration.data.qpos.copy(), self.configuration.data.xpos.copy()
 
 
     def error1(self):
         return np.linalg.norm(
             np.concatenate(
+                # [task.compute_error(self.configuration) for task in self.tasks1]
                 [task.compute_error(self.configuration) for task in self.tasks1]
             )
         )

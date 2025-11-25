@@ -16,7 +16,7 @@ def load_smplx_file(smplx_file, smplx_body_model_path):
     body_model = smplx.create(
         smplx_body_model_path,
         "smplx",
-        gender=str(smplx_data["gender"]),
+        gender=str("male"),
         use_pca=False,
     )
     # print(smplx_data["pose_body"].shape)
@@ -24,11 +24,59 @@ def load_smplx_file(smplx_file, smplx_body_model_path):
     # print(smplx_data["root_orient"].shape)
     # print(smplx_data["trans"].shape)
     
-    num_frames = smplx_data["pose_body"].shape[0]
+    # trackings = smplx_data['trackings']
+    # num_frames = trackings.item()['smpl_trans'].shape[0]
+
+    # smplx_trans = trackings.item()['smpl_trans_wd']
+    # smplx_global_orient_rot_matrix = trackings.item()['smpl_root_orient_wd']
+    # Apply rotation of 90 degrees clockwise around X-axis to all frames
+    # Rotation matrix for 90 degrees clockwise around X-axis: [[1, 0, 0], [0, cos(-90), -sin(-90)], [0, sin(-90), cos(-90)]]
+    # first_frame_inv = np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]], dtype=np.float32).reshape(1, 3, 3)
+    # smplx_global_orient_rot_matrix =  first_frame_inv @smplx_global_orient_rot_matrix 
+    # Apply the same rotation to translation
+    # smplx_trans = (first_frame_inv.squeeze() @ smplx_trans.T).T
+    # Convert rotation matrix (N, 1, 3, 3) to axis-angle (N, 3)
+    # smplx_global_orient = R.from_matrix(smplx_global_orient_rot_matrix.squeeze(1)).as_rotvec()
+    # print(smplx_global_orient)
+    # smplx_body_pos_rot_matrix = trackings.item()['smpl_body_pose']
+    # Apply the same rotation to the first joint of body pose only
+    # smplx_body_pos_rot_matrix[:, 0:2] =  first_frame_inv @smplx_body_pos_rot_matrix[:, 0:1]
+    # Convert body pose rotation matrix (N, 23, 3, 3) to axis-angle (N, 63), taking first 21 joints
+    # smplx_body_pose = R.from_matrix(smplx_body_pos_rot_matrix[:, :21].reshape(-1, 3, 3)).as_rotvec().reshape(num_frames, -1)
+    # smplx_betas = np.zeros(16)
+    # smplx_betas[:10] = trackings.item()['smpl_shapes']
+
+    # smplx_output = body_model(
+    #     betas=torch.tensor(smplx_betas).float().view(1, -1), # (16,)
+    #     global_orient=torch.tensor(smplx_global_orient).float(), # (N, 3)
+    #     body_pose=torch.tensor(smplx_body_pose).float(), # (N, 63)
+    #     transl=torch.tensor(smplx_trans).float(), # (N, 3)
+    #     left_hand_pose=torch.zeros(num_frames, 45).float(),
+    #     right_hand_pose=torch.zeros(num_frames, 45).float(),
+    #     jaw_pose=torch.zeros(num_frames, 3).float(),
+    #     leye_pose=torch.zeros(num_frames, 3).float(),
+    #     reye_pose=torch.zeros(num_frames, 3).float(),
+    #     # expression=torch.zeros(num_frames, 10).float(),
+    #     return_full_pose=True,
+    # )
+
+    num_frames = smplx_data["fullpose"].shape[0]
+    # smplx_transz = torch.tensor(smplx_data["trans_z"]).float()
+    # smplx_vel_xy = torch.tensor(smplx_data["velocity_xy"]).float()
+    # trans_xy = torch.cumsum(smplx_vel_xy, dim=0)
+    # body_pose = np.zeros((num_frames,63),dtype=float)
+    # body_pose[:,:57] = smplx_data["fullpose"][:,3:60]
+    # print(body_pose.shape)
+    smpl_body_pos = smplx_data["fullpose"][:,3:66]
+    # 生成一个绕x轴逆时针旋转90度的旋转矩阵
+    rotation_matrix = np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]])
+    # 对颈关节应用旋转 (joints 60:63 represent neck rotation in axis-angle)
+    # For each frame, apply the rotation: new_rot = rotation_matrix @ old_rot
+    # smpl_body_pos[:, 57:60] = (rotation_matrix @ smpl_body_pos[:, 57:60].T).T
     smplx_output = body_model(
-        betas=torch.tensor(smplx_data["betas"]).float().view(1, -1), # (16,)
-        global_orient=torch.tensor(smplx_data["root_orient"]).float(), # (N, 3)
-        body_pose=torch.tensor(smplx_data["pose_body"]).float(), # (N, 63)
+        betas=torch.tensor(smplx_data["betas"][:16]).float().view(1, -1), # (16,)
+        global_orient=torch.tensor(smplx_data["fullpose"][:,:3]).float(), # (N, 3)
+        body_pose=torch.tensor(smpl_body_pos).float(), # (N, 63)
         transl=torch.tensor(smplx_data["trans"]).float(), # (N, 3)
         left_hand_pose=torch.zeros(num_frames, 45).float(),
         right_hand_pose=torch.zeros(num_frames, 45).float(),
@@ -43,6 +91,10 @@ def load_smplx_file(smplx_file, smplx_body_model_path):
         human_height = 1.66 + 0.1 * smplx_data["betas"][0]
     else:
         human_height = 1.66 + 0.1 * smplx_data["betas"][0, 0]
+    # if len(smplx_betas.shape)==1:
+    #     human_height = 1.66 + 0.1 * smplx_betas[0]
+    # else:
+    #     human_height = 1.66 + 0.1 * smplx_betas[0, 0]
     
     return smplx_data, body_model, smplx_output, human_height
 
@@ -176,9 +228,10 @@ def get_smplx_data_offline_fast(smplx_data, body_model, smplx_output, tgt_fps=30
         ...
     }
     """
-    src_fps = smplx_data["mocap_frame_rate"].item()
+    # src_fps = smplx_data["mocap_frame_rate"].item()
+    src_fps = 120
     frame_skip = int(src_fps / tgt_fps)
-    num_frames = smplx_data["pose_body"].shape[0]
+    num_frames = smplx_data['trans'].shape[0]
     global_orient = smplx_output.global_orient.squeeze()
     full_body_pose = smplx_output.full_pose.reshape(num_frames, -1, 3)
     joints = smplx_output.joints.detach().numpy().squeeze()

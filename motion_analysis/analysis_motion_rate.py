@@ -65,42 +65,71 @@ def calculate_mpjpe(pos1, pos2):
     """
     return np.mean(np.linalg.norm(pos1 - pos2, axis=1))
 
-def calculate_motion_statistics(mpjpe_values):
+def calculate_motion_statistics(values, is_velocity=False):
     """
-    计算MPJPE统计信息
+    计算运动统计信息
     Args:
-        mpjpe_values: List[float] MPJPE值列表
+        values: List[float] 值列表（MPJPE或速度）
+        is_velocity: bool 是否为速度统计
     Returns:
         stats_dict: Dict 包含各项统计信息
     """
-    if not mpjpe_values:
+    if not values:
         return None
     
-    mpjpe_array = np.array(mpjpe_values)
+    values_array = np.array(values)
     
     # 计算众数
     try:
-        mode_result = stats.mode(mpjpe_array, keepdims=True)
+        mode_result = stats.mode(values_array, keepdims=True)
         mode_value = mode_result.mode[0]
     except:
         # 如果没有众数，使用最频繁的近似值
-        hist, bin_edges = np.histogram(mpjpe_array, bins=20)
+        hist, bin_edges = np.histogram(values_array, bins=20)
         mode_idx = np.argmax(hist)
         mode_value = (bin_edges[mode_idx] + bin_edges[mode_idx + 1]) / 2
     
-    return {
-        'min': float(np.min(mpjpe_array)),
-        'max': float(np.max(mpjpe_array)),
-        'mean': float(np.mean(mpjpe_array)),
-        'median': float(np.median(mpjpe_array)),
+    result = {
+        'min': float(np.min(values_array)),
+        'max': float(np.max(values_array)),
+        'mean': float(np.mean(values_array)),
+        'median': float(np.median(values_array)),
         'mode': float(mode_value),
-        'std': float(np.std(mpjpe_array)),
-        'frame_count': len(mpjpe_values) + 1  # +1 because we calculate N-1 MPJPE values for N frames
+        'std': float(np.std(values_array)),
     }
+    
+    if not is_velocity:
+        result['frame_count'] = len(values) + 1  # +1 because we calculate N-1 MPJPE values for N frames
+    
+    return result
+
+def calculate_root_velocity(root_pos, fps):
+    """
+    计算root_base的速度
+    Args:
+        root_pos: (N, 3) 根节点位置
+        fps: float 帧率
+    Returns:
+        velocities: List[float] 每帧的速度值（m/s）
+    """
+    if len(root_pos) < 2:
+        return []
+    
+    dt = 1.0 / fps  # 时间间隔
+    velocities = []
+    
+    for i in range(len(root_pos) - 1):
+        # 计算位移
+        displacement = np.linalg.norm(root_pos[i + 1] - root_pos[i])
+        # 计算速度 = 位移 / 时间
+        velocity = displacement / dt
+        velocities.append(velocity)
+    
+    return velocities
 
 def process_motion_file(file_path):
     """
-    处理单个动作文件，计算MPJPE统计信息
+    处理单个动作文件，计算MPJPE和root_base速度统计信息
     Args:
         file_path: str 文件路径
     Returns:
@@ -114,6 +143,7 @@ def process_motion_file(file_path):
         root_pos = motion_data['root_pos']  # (N, 3)
         root_rot = motion_data['root_rot']  # (N, 4)
         local_body_pos = motion_data['local_body_pos']  # (N, num_joints, 3)
+        fps = motion_data.get('fps', 30.0)  # 默认30fps
         
         # 转换为全局坐标
         global_body_pos = transform_local_to_global(local_body_pos, root_pos, root_rot)
@@ -124,8 +154,23 @@ def process_motion_file(file_path):
             mpjpe = calculate_mpjpe(global_body_pos[i], global_body_pos[i + 1])
             mpjpe_values.append(mpjpe)
         
+        # 计算root_base速度
+        root_velocities = calculate_root_velocity(root_pos, fps)
+
+        # 计算root_pos的统计信息（分别计算x, y, z坐标的统计）
+        root_stats = calculate_motion_statistics(root_pos[:, 2].tolist(), is_velocity=True)
+        
         # 计算统计信息
-        stats_dict = calculate_motion_statistics(mpjpe_values)
+        mpjpe_stats = calculate_motion_statistics(mpjpe_values, is_velocity=False)
+        velocity_stats = calculate_motion_statistics(root_velocities, is_velocity=True)
+        
+        stats_dict = {
+            'mpjpe_stats': mpjpe_stats,
+            'velocity_stats': velocity_stats,
+            'root_states': root_stats,
+            'fps': fps,
+            'frame_count': len(root_pos)
+        }
         
         return (file_path, stats_dict)
         
@@ -169,9 +214,10 @@ def main():
     # 使用多线程处理文件
     motion_stats_map = {}
     all_mpjpe_values = []
+    all_velocity_values = []
     valid_motions = 0
     
-    print("正在处理动作文件并计算MPJPE统计信息...")
+    print("正在处理动作文件并计算MPJPE和root_base速度统计信息...")
     with ThreadPoolExecutor(max_workers=args.max_workers) as executor:
         results = list(executor.map(process_motion_file, args_list))
     
@@ -179,44 +225,65 @@ def main():
     for file_path, stats_dict in results:
         if stats_dict is not None:
             motion_stats_map[file_path] = stats_dict
-            # 收集所有MPJPE值用于总体统计
+            # 收集所有MPJPE和速度值用于总体统计
             try:
                 with open(file_path, 'rb') as f:
                     motion_data = pickle.load(f)
                 root_pos = motion_data['root_pos']
                 root_rot = motion_data['root_rot']
                 local_body_pos = motion_data['local_body_pos']
+                fps = motion_data.get('fps', 30.0)
+                
                 global_body_pos = transform_local_to_global(local_body_pos, root_pos, root_rot)
                 
+                # 收集MPJPE值
                 for i in range(len(global_body_pos) - 1):
                     mpjpe = calculate_mpjpe(global_body_pos[i], global_body_pos[i + 1])
                     all_mpjpe_values.append(mpjpe)
+                
+                # 收集速度值
+                root_velocities = calculate_root_velocity(root_pos, fps)
+                all_velocity_values.extend(root_velocities)
+                
                 valid_motions += 1
             except:
                 pass
     
     # 计算总体统计信息
-    overall_stats = calculate_motion_statistics(all_mpjpe_values)
+    overall_mpjpe_stats = calculate_motion_statistics(all_mpjpe_values, is_velocity=False)
+    overall_velocity_stats = calculate_motion_statistics(all_velocity_values, is_velocity=True)
     
     print(f"\n处理完成！")
     print(f"有效动作数量: {valid_motions}")
     print(f"总帧间MPJPE数量: {len(all_mpjpe_values)}")
+    print(f"总速度值数量: {len(all_velocity_values)}")
     
-    if overall_stats:
+    if overall_mpjpe_stats:
         print(f"\n总体MPJPE统计信息:")
-        print(f"  最小值: {overall_stats['min']:.6f}")
-        print(f"  最大值: {overall_stats['max']:.6f}")
-        print(f"  平均值: {overall_stats['mean']:.6f}")
-        print(f"  中位数: {overall_stats['median']:.6f}")
-        print(f"  众数: {overall_stats['mode']:.6f}")
-        print(f"  标准差: {overall_stats['std']:.6f}")
+        print(f"  最小值: {overall_mpjpe_stats['min']:.6f}")
+        print(f"  最大值: {overall_mpjpe_stats['max']:.6f}")
+        print(f"  平均值: {overall_mpjpe_stats['mean']:.6f}")
+        print(f"  中位数: {overall_mpjpe_stats['median']:.6f}")
+        print(f"  众数: {overall_mpjpe_stats['mode']:.6f}")
+        print(f"  标准差: {overall_mpjpe_stats['std']:.6f}")
+    
+    if overall_velocity_stats:
+        print(f"\n总体root_base速度统计信息 (m/s):")
+        print(f"  最小值: {overall_velocity_stats['min']:.6f}")
+        print(f"  最大值: {overall_velocity_stats['max']:.6f}")
+        print(f"  平均值: {overall_velocity_stats['mean']:.6f}")
+        print(f"  中位数: {overall_velocity_stats['median']:.6f}")
+        print(f"  众数: {overall_velocity_stats['mode']:.6f}")
+        print(f"  标准差: {overall_velocity_stats['std']:.6f}")
     
     # 保存结果
     output_data = {
         'motion_stats': motion_stats_map,
-        'overall_stats': overall_stats,
+        'overall_mpjpe_stats': overall_mpjpe_stats,
+        'overall_velocity_stats': overall_velocity_stats,
         'total_motions': valid_motions,
-        'total_frame_pairs': len(all_mpjpe_values)
+        'total_frame_pairs': len(all_mpjpe_values),
+        'total_velocity_values': len(all_velocity_values)
     }
     
     with open(args.output_file, 'wb') as f:
@@ -225,11 +292,16 @@ def main():
     print(f"\n结果已保存到: {args.output_file}")
     
     # 显示一些示例统计信息
-    print(f"\n前5个动作的MPJPE统计信息:")
+    print(f"\n前5个动作的统计信息:")
     for i, (file_path, stats) in enumerate(list(motion_stats_map.items())[:5]):
         print(f"{i+1}. {os.path.basename(file_path)}:")
-        print(f"   帧数: {stats['frame_count']}, 平均MPJPE: {stats['mean']:.6f}")
-        print(f"   范围: [{stats['min']:.6f}, {stats['max']:.6f}]")
+        print(f"   帧数: {stats['frame_count']}, FPS: {stats['fps']}")
+        if stats['mpjpe_stats']:
+            print(f"   平均MPJPE: {stats['mpjpe_stats']['mean']:.6f}")
+            print(f"   MPJPE范围: [{stats['mpjpe_stats']['min']:.6f}, {stats['mpjpe_stats']['max']:.6f}]")
+        if stats['velocity_stats']:
+            print(f"   平均速度: {stats['velocity_stats']['mean']:.6f} m/s")
+            print(f"   速度范围: [{stats['velocity_stats']['min']:.6f}, {stats['velocity_stats']['max']:.6f}] m/s")
 
 if __name__ == "__main__":
     main()

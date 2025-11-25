@@ -61,7 +61,7 @@ def process_file(smplx_file_path, tgt_file_path, tgt_robot, SMPLX_FOLDER, tgt_fo
 
     try:
         smplx_data, body_model, smplx_output, actual_human_height = load_smplx_file(smplx_file_path, SMPLX_FOLDER)
-        mocap_frame_rate = smplx_data["mocap_frame_rate"]
+        # mocap_frame_rate = smplx_data["mocap_frame_rate"]
         log_memory("After loading SMPL-X data")
     except Exception as e:
         print(f"Error loading {smplx_file_path}: {e}")
@@ -84,7 +84,7 @@ def process_file(smplx_file_path, tgt_file_path, tgt_robot, SMPLX_FOLDER, tgt_fo
     qpos_list = []
     for smplx_frame_data in smplx_frame_data_list:
         qpos = retargeter.retarget(smplx_frame_data)
-        qpos_list.append(qpos.copy())
+        qpos_list.append(qpos)
 
     qpos_list = np.array(qpos_list)
 
@@ -235,14 +235,14 @@ def main():
     
     
     print("new args_list:", len(args_list))
-    # print(args_list)
+    print(args_list)
     
-    # total_files = len(args_list)
-    # print(f"Total number of files to process: {total_files}")
-    # with mp.Pool(args.num_cpus) as pool:
-    #     pool.starmap(process_file, [args + (total_files, verbose) for args in args_list])
+    total_files = len(args_list)
+    print(f"Total number of files to process: {total_files}")
+    with mp.Pool(args.num_cpus) as pool:
+        pool.starmap(process_file, [args + (total_files, verbose) for args in args_list])
 
-    # print("Done. Saved to ", tgt_folder)
+    print("Done. Saved to ", tgt_folder)
 
 
 if __name__ == "__main__":

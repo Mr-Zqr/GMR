@@ -1,0 +1,61 @@
+amax@amax:~/devel/GMR$ /home/amax/.conda/envs/gmr/bin/python /home/amax/devel/GMR/scripts/decode_pkl.py ~/devel/TWIST/twist_motion_dataset/home/yanjieze/projects/g1_wbc/humanoid-motion-imitation/track_dataset/twist_motion_dataset/accad/B15___walk_turn_around__same_direction_.pkl --show-key 'link_bod
+y_list'
+Loading pickle file: /home/amax/devel/TWIST/twist_motion_dataset/home/yanjieze/projects/g1_wbc/humanoid-motion-imitation/track_dataset/twist_motion_dataset/accad/B15___walk_turn_around__same_direction_.pkl
+================================================================================
+
+Top-level structure: dict
+================================================================================
+Dictionary with 6 keys:
+  'fps': float: 30.0
+  'root_pos': numpy.ndarray, shape: (319, 3), dtype: float32
+  'root_rot': numpy.ndarray, shape: (319, 4), dtype: float32
+  'dof_pos': numpy.ndarray, shape: (319, 23), dtype: float32
+  'local_body_pos': numpy.ndarray, shape: (319, 38, 3), dtype: float32
+  'link_body_list': list of 38 elements, type: str
+
+================================================================================
+Data for key 'link_body_list':
+================================================================================
+
+Found at: link_body_list
+Type: list
+Length: 38
+Data:
+  [0]: pelvis
+  [1]: left_hip_pitch_link
+  [2]: left_hip_roll_link
+  [3]: left_hip_yaw_link
+  [4]: left_knee_link
+  [5]: left_ankle_pitch_link
+  [6]: left_ankle_roll_link
+  [7]: left_toe_link
+  [8]: pelvis_contour_link
+  [9]: right_hip_pitch_link
+  [10]: right_hip_roll_link
+  [11]: right_hip_yaw_link
+  [12]: right_knee_link
+  [13]: right_ankle_pitch_link
+  [14]: right_ankle_roll_link
+  [15]: right_toe_link
+  [16]: waist_yaw_link
+  [17]: waist_roll_link
+  [18]: torso_link
+  [19]: head_link
+  [20]: head_mocap
+  [21]: imu_in_torso
+  [22]: left_shoulder_pitch_link
+  [23]: left_shoulder_roll_link
+  [24]: left_shoulder_yaw_link
+  [25]: left_elbow_link
+  [26]: left_wrist_roll_link
+  [27]: left_wrist_pitch_link
+  [28]: left_wrist_yaw_link
+  [29]: left_rubber_hand
+  [30]: right_shoulder_pitch_link
+  [31]: right_shoulder_roll_link
+  [32]: right_shoulder_yaw_link
+  [33]: right_elbow_link
+  [34]: right_wrist_roll_link
+  [35]: right_wrist_pitch_link
+  [36]: right_wrist_yaw_link
+  [37]: right_rubber_hand

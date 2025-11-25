@@ -63,6 +63,20 @@ if __name__ == "__main__":
         action="store_true",
         help="Limit the rate of the retargeted robot motion to keep the same as the human motion.",
     )
+    
+    parser.add_argument(
+        "--visualize_smplx",
+        default=False,
+        action="store_true",
+        help="Visualize SMPL-X motion as stick figure before retargeting.",
+    )
+    
+    parser.add_argument(
+        "--viz_mode",
+        choices=["interactive", "animation", "grid"],
+        default="interactive",
+        help="Visualization mode: interactive (slider), animation, or grid (static frames)",
+    )
 
     args = parser.parse_args()
 
@@ -79,6 +93,34 @@ if __name__ == "__main__":
     tgt_fps = 30
     smplx_data_frames, aligned_fps = get_smplx_data_offline_fast(smplx_data, body_model, smplx_output, tgt_fps=tgt_fps)
     
+    # Visualize SMPL-X motion if requested
+    if args.visualize_smplx:
+        print(f"\n[bold green]可视化 SMPL-X 动作数据[/bold green]")
+        print(f"总帧数: {len(smplx_data_frames)}")
+        print(f"FPS: {aligned_fps}")
+        print(f"时长: {len(smplx_data_frames)/aligned_fps:.2f}秒\n")
+        
+        try:
+            from visualize_smplx_simple import (
+                visualize_frames_interactive, 
+                visualize_frames_animation,
+                visualize_frames_grid
+            )
+            
+            if args.viz_mode == "interactive":
+                print("使用交互式滑块查看动作...")
+                visualize_frames_interactive(smplx_data_frames, aligned_fps)
+            elif args.viz_mode == "animation":
+                print("播放动画...")
+                visualize_frames_animation(smplx_data_frames, aligned_fps)
+            elif args.viz_mode == "grid":
+                print("显示关键帧...")
+                visualize_frames_grid(smplx_data_frames, num_samples=6)
+        except ImportError as e:
+            print(f"[bold red]错误: 无法导入可视化模块[/bold red]")
+            print(f"请确保安装了 matplotlib: pip install matplotlib")
+            print(f"详细错误: {e}")
+            exit(1)
    
     # Initialize the retargeting system
     retarget = GMR(
@@ -105,6 +147,7 @@ if __name__ == "__main__":
         if save_dir:  # Only create directory if it's not empty
             os.makedirs(save_dir, exist_ok=True)
         qpos_list = []
+        joint_position_list = []
     
     # Start the viewer
     i = 0
@@ -130,7 +173,7 @@ if __name__ == "__main__":
         smplx_data = smplx_data_frames[i]
 
         # retarget
-        qpos = retarget.retarget(smplx_data)
+        qpos, joint_position= retarget.retarget(smplx_data)
 
         # visualize
         robot_motion_viewer.step(
@@ -145,10 +188,14 @@ if __name__ == "__main__":
         )
         if args.save_path is not None:
             qpos_list.append(qpos)
+            joint_position_list.append(joint_position)
             
     if args.save_path is not None:
+        joint_position_z_min = np.min([np.min(jp[:,2]) for jp in joint_position_list])
+        print(f"joint_position_z_min: {joint_position_z_min}")
+        position_offset = [0, 0, -joint_position_z_min]
         import pickle
-        root_pos = np.array([qpos[:3] for qpos in qpos_list])
+        root_pos = np.array([qpos[:3]+position_offset for qpos in qpos_list])
         # save from wxyz to xyzw
         root_rot = np.array([qpos[3:7][[1,2,3,0]] for qpos in qpos_list])
         dof_pos = np.array([qpos[7:] for qpos in qpos_list])
