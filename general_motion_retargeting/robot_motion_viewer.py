@@ -52,7 +52,8 @@ class RobotMotionViewer:
                 record_video=False,
                 video_path=None,
                 video_width=640,
-                video_height=480):
+                video_height=480,
+                headless=False):
         
         self.robot_type = robot_type
         self.xml_path = ROBOT_XML_DICT[robot_type]
@@ -66,15 +67,18 @@ class RobotMotionViewer:
         self.rate_limiter = RateLimiter(frequency=self.motion_fps, warn=False)
         self.camera_follow = camera_follow
         self.record_video = record_video
+        self.headless = headless
 
+        if not self.headless:
+            self.viewer = mjv.launch_passive(
+                model=self.model,
+                data=self.data,
+                show_left_ui=False,
+                show_right_ui=False)      
 
-        self.viewer = mjv.launch_passive(
-            model=self.model,
-            data=self.data,
-            show_left_ui=False,
-            show_right_ui=False)      
-
-        self.viewer.opt.flags[mj.mjtVisFlag.mjVIS_TRANSPARENT] = transparent_robot
+            self.viewer.opt.flags[mj.mjtVisFlag.mjVIS_TRANSPARENT] = transparent_robot
+        else:
+            self.viewer = None
         
         if self.record_video:
             assert video_path is not None, "Please provide video path for recording"
@@ -88,6 +92,14 @@ class RobotMotionViewer:
             
             # Initialize renderer for video recording
             self.renderer = mj.Renderer(self.model, height=video_height, width=video_width)
+            
+            # Set up camera for headless mode
+            if self.headless:
+                self.camera = mj.MjvCamera()
+                self.camera.lookat = self.data.xpos[self.model.body(self.robot_base).id]
+                self.camera.distance = self.viewer_cam_distance
+                self.camera.elevation = -10
+                self.camera.azimuth = 90
         
     def step(self, 
             # robot data
@@ -119,39 +131,47 @@ class RobotMotionViewer:
         
         mj.mj_forward(self.model, self.data)
         
-        if follow_camera:
-            self.viewer.cam.lookat = self.data.xpos[self.model.body(self.robot_base).id]
-            self.viewer.cam.distance = self.viewer_cam_distance
-            self.viewer.cam.elevation = -10  # 正面视角，轻微向下看
-            # self.viewer.cam.azimuth = 180    # 正面朝向机器人
-        
-        if human_motion_data is not None:
-            # Clean custom geometry
-            self.viewer.user_scn.ngeom = 0
-            # Draw the task targets for reference
-            for human_body_name, (pos, rot) in human_motion_data.items():
-                draw_frame(
-                    pos,
-                    R.from_quat(rot, scalar_first=True).as_matrix(),
-                    self.viewer,
-                    human_point_scale,
-                    pos_offset=human_pos_offset,
-                    joint_name=human_body_name if show_human_body_name else None
-                    )
+        if not self.headless:
+            if follow_camera:
+                self.viewer.cam.lookat = self.data.xpos[self.model.body(self.robot_base).id]
+                self.viewer.cam.distance = self.viewer_cam_distance
+                self.viewer.cam.elevation = -10  # 正面视角，轻微向下看
+                # self.viewer.cam.azimuth = 180    # 正面朝向机器人
+            
+            if human_motion_data is not None:
+                # Clean custom geometry
+                self.viewer.user_scn.ngeom = 0
+                # Draw the task targets for reference
+                for human_body_name, (pos, rot) in human_motion_data.items():
+                    draw_frame(
+                        pos,
+                        R.from_quat(rot, scalar_first=True).as_matrix(),
+                        self.viewer,
+                        human_point_scale,
+                        pos_offset=human_pos_offset,
+                        joint_name=human_body_name if show_human_body_name else None
+                        )
 
-        self.viewer.sync()
-        if rate_limit is True:
-            self.rate_limiter.sleep()
+            self.viewer.sync()
+            if rate_limit is True:
+                self.rate_limiter.sleep()
 
         if self.record_video:
             # Use renderer for proper offscreen rendering
-            self.renderer.update_scene(self.data, camera=self.viewer.cam)
+            if self.headless:
+                # Update camera position for headless mode
+                if follow_camera:
+                    self.camera.lookat = self.data.xpos[self.model.body(self.robot_base).id]
+                self.renderer.update_scene(self.data, camera=self.camera)
+            else:
+                self.renderer.update_scene(self.data, camera=self.viewer.cam)
             img = self.renderer.render()
             self.mp4_writer.append_data(img)
     
     def close(self):
-        self.viewer.close()
-        time.sleep(0.5)
+        if self.viewer is not None:
+            self.viewer.close()
+            time.sleep(0.5)
         if self.record_video:
             self.mp4_writer.close()
             print(f"Video saved to {self.video_path}")

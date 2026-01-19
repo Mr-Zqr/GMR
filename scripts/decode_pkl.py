@@ -10,6 +10,12 @@ import numpy as np
 import torch
 from pathlib import Path
 
+try:
+    import joblib
+    HAS_JOBLIB = True
+except ImportError:
+    HAS_JOBLIB = False
+
 
 def get_shape_info(obj):
     """Get shape/dimension information of an object."""
@@ -72,6 +78,7 @@ def decode_structure(obj, indent=0, max_depth=10, current_depth=0):
                     
     elif isinstance(obj, (list, tuple)):
         print(f"{prefix}{type(obj).__name__} with {len(obj)} elements:")
+        # print(obj[814])
         if len(obj) > 0:
             first_elem = obj[0]
             shape_info = get_shape_info(first_elem)
@@ -126,30 +133,43 @@ def main():
     try:
         with open(pkl_path, 'rb') as f:
             data = pickle.load(f)
-        
-        print(f"\nTop-level structure: {type(data).__name__}")
+    except (ModuleNotFoundError, Exception) as e:
+        # Try loading with joblib if pickle fails
+        if HAS_JOBLIB:
+            print(f"Standard pickle failed ({e}), trying joblib...")
+            try:
+                data = joblib.load(pkl_path)
+            except Exception as e2:
+                print(f"Error loading with joblib: {e2}")
+                import traceback
+                traceback.print_exc()
+                return
+        else:
+            print(f"Error: {e}")
+            print("Try installing joblib: pip install joblib")
+            import traceback
+            traceback.print_exc()
+            return
+    
+    print(f"\nTop-level structure: {type(data).__name__}")
+    # print(data)
+    print("=" * 80)
+    
+    decode_structure(data, indent=0, max_depth=args.max_depth)
+    
+    # Optional: show specific key data
+    if args.show_key:
+        print("\n" + "=" * 80)
+        print(f"Data for key '{args.show_key}':")
         print("=" * 80)
-        
-        decode_structure(data, indent=0, max_depth=args.max_depth)
-        
-        # Optional: show specific key data
-        if args.show_key:
-            print("\n" + "=" * 80)
-            print(f"Data for key '{args.show_key}':")
-            print("=" * 80)
-            show_key_data(data, args.show_key)
-        
-        # Optional: show small array values
-        if args.show_values:
-            print("\n" + "=" * 80)
-            print("Small array values (shape <= 10):")
-            print("=" * 80)
-            show_small_values(data)
-            
-    except Exception as e:
-        print(f"Error loading pickle file: {e}")
-        import traceback
-        traceback.print_exc()
+        show_key_data(data, args.show_key)
+    
+    # Optional: show small array values
+    if args.show_values:
+        print("\n" + "=" * 80)
+        print("Small array values (shape <= 10):")
+        print("=" * 80)
+        show_small_values(data)
 
 
 def show_small_values(obj, prefix=""):

@@ -95,8 +95,8 @@ def print_nested_structure(obj, indent=0, max_depth=5, current_depth=0):
 # 读取 .npy 或 .npz 文件
 # data = np.load("/home/amax/devel/dataset/scene_0_426.npz", allow_pickle=True)
 # file_path = "/home/amax/devel/dataset/PHUMA/data/g1/aist/subset_0000/Dance_Break_3_Step_clip_10_chunk_0000.npy"
-file_path = "/home/amax/devel/dataset/yiheng_subset_0000/Dance_clip_3.npz.npy"
-# file_path = "/home/amax/devel/dataset/jiaqi_kuailechongbai/jiaqi_KuaileChongbai.npz"
+# file_path = "/home/amax/devel/dataset/yiheng_g1/Archive 4/motion.npz"
+file_path = "/home/amax/devel/dataset/motion_0-19916_seg0_with_contact.npz"
 
 
 data = np.load(file_path, allow_pickle=True)
