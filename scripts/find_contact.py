@@ -150,6 +150,8 @@ def process_motion_file(input_file, output_file, urdf_path, contact_threshold=0.
         for lab_body_name in lab_body_name_list:
             if lab_body_name in pino_body_name_list:
                 body_mapping.append(pino_body_name_list.index(lab_body_name))
+            
+        print("body_mapping: ", body_mapping)
         
         # Process each frame and find contact body
         contact_bodies_per_frame = []

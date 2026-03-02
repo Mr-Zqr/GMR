@@ -96,10 +96,19 @@ def print_nested_structure(obj, indent=0, max_depth=5, current_depth=0):
 # data = np.load("/home/amax/devel/dataset/scene_0_426.npz", allow_pickle=True)
 # file_path = "/home/amax/devel/dataset/PHUMA/data/g1/aist/subset_0000/Dance_Break_3_Step_clip_10_chunk_0000.npy"
 # file_path = "/home/amax/devel/dataset/yiheng_g1/Archive 4/motion.npz"
-file_path = "/home/amax/devel/dataset/motion_0-19916_seg0_with_contact.npz"
+# file_path = "/home/amax/devel/dataset/NeoBot/P2.npz"
+# file_path = "/home/amax/devel/Neobot_project/NeoBot_retargeting/logs/rsl_rl/g1_flat_neobot_retarget_test/2026-01-31_19-46-54_debug_P2/recorded_motions/P2.npz"
+# file_path = '/home/amax/devel/dataset/NeoBot/2_gmr_retarget/Mirror_MotionGV/folder0/050994.npz'
+# file_path = '/home/amax/devel/dataset/LAFAN1_Retargeting_Dataset/Lafan_dataset_g1_npz_wiz_contact/dance2_subject1.npz'
+file_path = '/home/amax/devel/dataset/NeoBot/debug_transform/motion_02_after.npz'
 
-
-data = np.load(file_path, allow_pickle=True)
+# Try numpy first; fall back to joblib if the file is a joblib-serialized pickle
+try:
+    data = np.load(file_path, allow_pickle=True)
+except Exception:
+    import joblib
+    data = joblib.load(file_path)
+    print(f"(loaded with joblib instead of numpy)")
 
 # 查看数据类型
 print(f"文件路径: {file_path}")

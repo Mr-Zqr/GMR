@@ -48,6 +48,10 @@ class RobotMotionViewer:
                 camera_follow=True,
                 motion_fps=30,
                 transparent_robot=0,
+                # robot color and offset for multiple robots
+                robot_color=None,
+                position_offset=None,
+                robot_label=None,
                 # video recording
                 record_video=False,
                 video_path=None,
@@ -61,6 +65,16 @@ class RobotMotionViewer:
         self.data = mj.MjData(self.model)
         self.robot_base = ROBOT_BASE_DICT[robot_type]
         self.viewer_cam_distance = VIEWER_CAM_DISTANCE_DICT[robot_type]
+        
+        # Set robot color if provided
+        self.robot_color = robot_color if robot_color is not None else [0.8, 0.8, 0.8, 1.0]
+        self.position_offset = position_offset if position_offset is not None else np.array([0.0, 0.0, 0.0])
+        self.robot_label = robot_label
+        
+        # Apply color to all geoms
+        for i in range(self.model.ngeom):
+            self.model.geom_rgba[i] = self.robot_color
+        
         mj.mj_step(self.model, self.data)
         
         self.motion_fps = motion_fps
@@ -114,6 +128,8 @@ class RobotMotionViewer:
             # rate limit
             rate_limit=True, 
             follow_camera=True,
+            # for multi-robot support
+            show_label=False,
             ):
         """
         by default visualize robot motion.
@@ -125,7 +141,8 @@ class RobotMotionViewer:
         else, the motion will be visualized as fast as possible.
         """
         
-        self.data.qpos[:3] = root_pos
+        # Apply position offset
+        self.data.qpos[:3] = root_pos + self.position_offset
         self.data.qpos[3:7] = root_rot # quat need to be scalar first! for mujoco
         self.data.qpos[7:] = dof_pos
         
@@ -139,8 +156,6 @@ class RobotMotionViewer:
                 # self.viewer.cam.azimuth = 180    # 正面朝向机器人
             
             if human_motion_data is not None:
-                # Clean custom geometry
-                self.viewer.user_scn.ngeom = 0
                 # Draw the task targets for reference
                 for human_body_name, (pos, rot) in human_motion_data.items():
                     draw_frame(
@@ -151,6 +166,21 @@ class RobotMotionViewer:
                         pos_offset=human_pos_offset,
                         joint_name=human_body_name if show_human_body_name else None
                         )
+            
+            # Draw robot label if provided
+            if show_label and self.robot_label is not None:
+                label_pos = self.data.xpos[self.model.body(self.robot_base).id] + np.array([0, 0, 0.3])
+                geom = self.viewer.user_scn.geoms[self.viewer.user_scn.ngeom]
+                mj.mjv_initGeom(
+                    geom,
+                    type=mj.mjtGeom.mjGEOM_SPHERE,
+                    size=[0.02, 0.02, 0.02],
+                    pos=label_pos,
+                    mat=np.eye(3).flatten(),
+                    rgba=self.robot_color,
+                )
+                geom.label = self.robot_label
+                self.viewer.user_scn.ngeom += 1
 
             self.viewer.sync()
             if rate_limit is True:

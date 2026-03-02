@@ -17,23 +17,38 @@ except ImportError:
 
 def load_pickle_file(pkl_path):
     """Load a pickle file using pickle or joblib."""
+    # Try standard pickle first
     try:
         with open(pkl_path, 'rb') as f:
             data = pickle.load(f)
+        print("Loaded with standard pickle")
         return data
     except Exception as e:
-        if HAS_JOBLIB:
-            print(f"Standard pickle failed ({e}), trying joblib...")
-            try:
-                data = joblib.load(pkl_path)
-                return data
-            except Exception as e2:
-                print(f"Error loading with joblib: {e2}")
-                raise e2
-        else:
-            print(f"Error: {e}")
-            print("Try installing joblib: pip install joblib")
-            raise e
+        print(f"Standard pickle failed: {e}")
+    
+    # Try with different pickle protocols
+    for encoding in ['latin1', 'ASCII', 'bytes']:
+        try:
+            with open(pkl_path, 'rb') as f:
+                data = pickle.load(f, encoding=encoding)
+            print(f"Loaded with pickle using encoding={encoding}")
+            return data
+        except Exception as e:
+            print(f"Pickle with encoding={encoding} failed: {e}")
+    
+    # Try joblib if available
+    if HAS_JOBLIB:
+        print("Trying joblib...")
+        try:
+            data = joblib.load(pkl_path)
+            print("Loaded with joblib")
+            return data
+        except Exception as e:
+            print(f"Error loading with joblib: {e}")
+    else:
+        print("joblib not available. Try installing: pip install joblib")
+    
+    raise RuntimeError(f"Failed to load pickle file: {pkl_path}")
 
 
 def split_pickle_file(input_pkl, output_dir):
@@ -59,14 +74,20 @@ def split_pickle_file(input_pkl, output_dir):
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     
-    # Create subdirectories for pred and gmr
+    # Create subdirectories for pred and gmr``
     pred_path = output_path / "pred"
     gmr_path = output_path / "gmr"
+    phuma_path = output_path / "phuma"
+    gt_path = output_path / "gt"
     pred_path.mkdir(parents=True, exist_ok=True)
     gmr_path.mkdir(parents=True, exist_ok=True)
+    phuma_path.mkdir(parents=True, exist_ok=True)
+    gt_path.mkdir(parents=True, exist_ok=True)
     print(f"Output directory: {output_path}")
     print(f"  - Pred files: {pred_path}")
     print(f"  - GMR files: {gmr_path}")
+    print(f"  - PHUMA files: {phuma_path}")
+    print(f"  - GT files: {gt_path}")
     
     # Process each element
     for idx, element in enumerate(data):
@@ -77,6 +98,7 @@ def split_pickle_file(input_pkl, output_dir):
         # Split into pred and gt data
         pred_data = {}
         gt_data = {}
+        phuma_data = {}
         
         for key, value in element.items():
             if key.startswith('pred_'):
@@ -87,10 +109,16 @@ def split_pickle_file(input_pkl, output_dir):
                 # Remove 'gmr_' prefix for cleaner keys
                 new_key = key  # Remove 'gmr_' prefix
                 gt_data[new_key] = value
-            else:
-                # For keys without prefix, add to both
-                pred_data[key] = value
-                gt_data[key] = value
+            elif key.startswith('phuma_'):
+                new_key = key
+                phuma_data[new_key] = value
+            elif key.startswith('gt_'):
+                new_key = key
+                gt_data[new_key] = value
+            # else:
+            #     # For keys without prefix, add to both
+            #     pred_data[key] = value
+            #     gt_data[key] = value
         
         # Save pred file
         if pred_data:
@@ -105,6 +133,18 @@ def split_pickle_file(input_pkl, output_dir):
             with open(gt_file, 'wb') as f:
                 pickle.dump(gt_data, f)
             print(f"Saved: gmr/{gt_file.name}")
+        
+        if phuma_data:
+            phuma_file = phuma_path / f"{idx + 1}_phuma.pkl"
+            with open(phuma_file, 'wb') as f:
+                pickle.dump(phuma_data, f)
+            print(f"Saved: phuma/{phuma_file.name}")
+        
+        if gt_data:
+            gt_file = gt_path / f"{idx + 1}_gt.pkl"
+            with open(gt_file, 'wb') as f:
+                pickle.dump(gt_data, f)
+            print(f"Saved: gt/{gt_file.name}")
     
     print(f"\nCompleted! Split {len(data)} elements into {output_path}")
     print(f"Total files created: {len(list(output_path.glob('*.pkl')))}")

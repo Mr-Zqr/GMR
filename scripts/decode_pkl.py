@@ -170,6 +170,7 @@ def main():
         print("Small array values (shape <= 10):")
         print("=" * 80)
         show_small_values(data)
+        print(data)
 
 
 def show_small_values(obj, prefix=""):

@@ -230,7 +230,6 @@ def get_smplx_data_offline_fast(smplx_data, body_model, smplx_output, tgt_fps=30
     """
     # src_fps = smplx_data["mocap_frame_rate"].item()
     src_fps = 120
-    frame_skip = int(src_fps / tgt_fps)
     num_frames = smplx_data['trans'].shape[0]
     global_orient = smplx_output.global_orient.squeeze()
     full_body_pose = smplx_output.full_pose.reshape(num_frames, -1, 3)
@@ -238,9 +237,10 @@ def get_smplx_data_offline_fast(smplx_data, body_model, smplx_output, tgt_fps=30
     joint_names = JOINT_NAMES[: len(body_model.parents)]
     parents = body_model.parents
     
-    if tgt_fps < src_fps:
+    if tgt_fps != src_fps:
         # perform fps alignment with proper interpolation
-        new_num_frames = num_frames // frame_skip
+        # Calculate correct number of output frames based on time duration
+        new_num_frames = int(num_frames * tgt_fps / src_fps)
         
         # Create time points for interpolation
         original_time = np.arange(num_frames)
@@ -323,7 +323,6 @@ def get_gvhmr_data_offline_fast(smplx_data, body_model, smplx_output, tgt_fps=30
     }
     """
     src_fps = smplx_data["mocap_frame_rate"].item()
-    frame_skip = int(src_fps / tgt_fps)
     num_frames = smplx_data["pose_body"].shape[0]
     global_orient = smplx_output.global_orient.squeeze()
     full_body_pose = smplx_output.full_pose.reshape(num_frames, -1, 3)
@@ -331,9 +330,10 @@ def get_gvhmr_data_offline_fast(smplx_data, body_model, smplx_output, tgt_fps=30
     joint_names = JOINT_NAMES[: len(body_model.parents)]
     parents = body_model.parents
     
-    if tgt_fps < src_fps:
+    if tgt_fps != src_fps:
         # perform fps alignment with proper interpolation
-        new_num_frames = num_frames // frame_skip
+        # Calculate correct number of output frames based on time duration
+        new_num_frames = int(num_frames * tgt_fps / src_fps)
         
         # Create time points for interpolation
         original_time = np.arange(num_frames)

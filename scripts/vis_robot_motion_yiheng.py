@@ -9,20 +9,19 @@ def load_robot_motion(motion_file):
     """
     Load robot motion data from a pickle file.
     """
+    def to_numpy(tensor):
+        """Convert torch tensor to numpy array, handling CUDA tensors."""
+        if hasattr(tensor, 'cpu'):  # Check if it's a torch tensor
+            return tensor.cpu().numpy()
+        return np.array(tensor)
+    
     with open(motion_file, "rb") as f:
-        # motion_data = joblib.load(f)        
         motion_data = np.load(f, allow_pickle=True)
-        # motion_data = torch.load(f)
-        # motion_fps = motion_data["fps"]
         motion_fps = 50
-        # motion_id = 820
-        # print(motion_data[motion_id]["caption"])
-        # motion_root_pos = motion_data["root_pos"]
-        # motion_root_rot = motion_data["root_rot"][:, [3, 0, 1, 2]] # from xyzw to wxyz
+
         motion_root_pos = motion_data["body_pos_w"][:, 0, :]
         motion_root_rot = motion_data["body_quat_w"][:, 0, :] # from xyzw to wxyz
-        # motion_root_rot = motion_data["root_rot"] # from xyzw to wxyz
-        dof_indices = list(range(0, 20)) + list(range(23, 26))
+
         joint_mapping = list([0, 6, 12,
                           1, 7, 13,
                           2, 8, 14,
@@ -35,6 +34,8 @@ def load_robot_motion(motion_file):
                                     21, 28])
         motion_dof_pos = np.zeros((motion_data["body_quat_w"].shape[0], 29), dtype = np.float32)
         motion_dof_pos[:, joint_mapping] = motion_data["joint_pos"]
+        motion_body_pos = motion_data["body_pos_w"]
+        motion_body_rot = motion_data["body_quat_w"]
     return motion_data, motion_fps, motion_root_pos, motion_root_rot, motion_dof_pos, None, None
 
 if __name__ == "__main__":
@@ -42,7 +43,7 @@ if __name__ == "__main__":
     parser.add_argument("--robot", type=str, default="unitree_g1")
                         
     parser.add_argument("--robot_motion_dir", type=str, 
-                        default="/home/amax/devel/dataset/yiheng_g1/TWIST",
+                        # default="/home/amax/devel/dataset/yiheng_g1/TWIST",
                         help="Directory containing motion files")
 
     parser.add_argument("--video_dir", type=str, 

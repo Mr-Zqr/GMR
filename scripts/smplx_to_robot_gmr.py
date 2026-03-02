@@ -21,7 +21,7 @@ if __name__ == "__main__":
         help="SMPLX motion file to load.",
         type=str,
         # required=True,
-        default="/home/yanjieze/projects/g1_wbc/GMR/motion_data/ACCAD/Male1General_c3d/General_A1_-_Stand_stageii.npz",
+        default="/home/amax/devel/dataset/XXY_guaiqi/Data_2026-02-06_18-20-08_stageii.pkl",
         # default="/home/yanjieze/projects/g1_wbc/GMR/motion_data/ACCAD/Male2MartialArtsKicks_c3d/G8_-__roundhouse_left_stageii.npz"
         # default="/home/yanjieze/projects/g1_wbc/TWIST-dev/motion_data/AMASS/KIT_572_dance_chacha11_stageii.npz"
         # default="/home/yanjieze/projects/g1_wbc/GMR/motion_data/ACCAD/Male2MartialArtsPunches_c3d/E1_-__Jab_left_stageii.npz",
@@ -59,7 +59,7 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--rate_limit",
-        default=False,
+        default=True,
         action="store_true",
         help="Limit the rate of the retargeted robot motion to keep the same as the human motion.",
     )
@@ -90,7 +90,7 @@ if __name__ == "__main__":
     )
     
     # align fps
-    tgt_fps = 30
+    tgt_fps = 50
     smplx_data_frames, aligned_fps = get_smplx_data_offline_fast(smplx_data, body_model, smplx_output, tgt_fps=tgt_fps)
     
     # Visualize SMPL-X motion if requested

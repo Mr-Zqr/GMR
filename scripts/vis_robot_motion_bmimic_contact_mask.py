@@ -5,6 +5,7 @@ import os
 import joblib
 import torch
 from scipy.spatial.transform import Rotation as R
+import mujoco as mj
 
 # Lab body name list for contact mask mapping
 lab_body_name_list = [
@@ -40,6 +41,43 @@ lab_body_name_list = [
   "right_wrist_yaw_link",
 ]
 
+def draw_contact_frame(
+    pos,
+    mat,
+    v,
+    size,
+    joint_name=None,
+    orientation_correction=R.from_euler("xyz", [0, 0, 0]),
+    pos_offset=np.array([0, 0, 0]),
+    contact_color=[1, 0, 0, 1],  # 默认红色表示接触
+):
+    """
+    绘制接触点的坐标框架，使用指定的颜色
+    """
+    # 为接触点使用单一颜色（红色）
+    rgba_list = [contact_color, contact_color, contact_color]
+    for i in range(3):
+        geom = v.user_scn.geoms[v.user_scn.ngeom]
+        mj.mjv_initGeom(
+            geom,
+            type=mj.mjtGeom.mjGEOM_ARROW,
+            size=[0.01, 0.01, 0.01],
+            pos=pos + pos_offset,
+            mat=mat.flatten(),
+            rgba=rgba_list[i],
+        )
+        # if joint_name is not None:
+        #     geom.label = joint_name
+        fix = orientation_correction.as_matrix()
+        mj.mjv_connector(
+            v.user_scn.geoms[v.user_scn.ngeom],
+            type=mj.mjtGeom.mjGEOM_ARROW,
+            width=0.005,
+            from_=pos + pos_offset,
+            to=pos + pos_offset + size * (mat @ fix)[:, i],
+        )
+        v.user_scn.ngeom += 1
+
 def load_robot_motion(motion_file):
     """
     Load robot motion data from a pickle file.
@@ -69,7 +107,9 @@ def load_robot_motion(motion_file):
                                     20, 27,
                                     21, 28])
         motion_dof_pos = np.zeros((motion_data["body_quat_w"].shape[0], 29), dtype = np.float32)
+        # motion_dof_pos[:, joint_mapping] = motion_data["joint_pos"]
         motion_dof_pos[:, joint_mapping] = motion_data["joint_pos"]
+        print(motion_dof_pos)
         
         # Load body positions and quaternions for contact visualization
         body_pos_w = motion_data["body_pos_w"].copy()
@@ -114,25 +154,56 @@ if __name__ == "__main__":
     
     frame_idx = 0
     while True:
-        # Build contact visualization data
-        contact_vis_data = None
-        if contact_mask is not None:
-            contact_vis_data = {}
-            for body_idx in range(contact_mask.shape[1]):
-                if contact_mask[frame_idx, body_idx] == 1:
-                    body_name = lab_body_name_list[body_idx]
-                    # Get body position and rotation from motion data
-                    body_pos = body_pos_w[frame_idx, body_idx, :]
-                    body_quat = body_quat_w[frame_idx, body_idx, :]  # wxyz format
-                    contact_vis_data[body_name] = (body_pos, body_quat)
+        # Update robot pose
+        env.data.qpos[:3] = motion_root_pos[frame_idx]
+        env.data.qpos[3:7] = motion_root_rot[frame_idx]
+        env.data.qpos[7:] = motion_dof_pos[frame_idx]
+        mj.mj_forward(env.model, env.data)
         
-        env.step(motion_root_pos[frame_idx], 
-                motion_root_rot[frame_idx], 
-                motion_dof_pos[frame_idx],
-                human_motion_data=contact_vis_data,
-                show_human_body_name=True,
-                human_point_scale=0.15,
-                rate_limit=True)
+        if not env.headless:
+            # Update camera
+            if env.camera_follow:
+                env.viewer.cam.lookat = env.data.xpos[env.model.body(env.robot_base).id]
+                env.viewer.cam.distance = env.viewer_cam_distance
+                env.viewer.cam.elevation = -10
+            
+            # Draw contact visualization
+            if contact_mask is not None:
+                # Clean custom geometry
+                env.viewer.user_scn.ngeom = 0
+                # Draw contact points in red
+                for body_idx in range(contact_mask.shape[1]):
+                    if contact_mask[frame_idx, body_idx] == 1:
+                        body_name = lab_body_name_list[body_idx]
+                        # Get body position and rotation from motion data
+                        body_pos = body_pos_w[frame_idx, body_idx, :]
+                        body_quat = body_quat_w[frame_idx, body_idx, :]  # wxyz format
+                        
+                        # Draw red contact frame
+                        draw_contact_frame(
+                            body_pos,
+                            R.from_quat(body_quat, scalar_first=True).as_matrix(),
+                            env.viewer,
+                            0.15,  # size
+                            joint_name=body_name,
+                            contact_color=[1, 0, 0, 1]  # 红色表示接触
+                        )
+            
+            env.viewer.sync()
+            if env.rate_limiter is not None:
+                env.rate_limiter.sleep()
+        
+        if env.record_video:
+            # Handle video recording
+            if env.headless:
+                if env.camera_follow:
+                    env.camera.lookat = env.data.xpos[env.model.body(env.robot_base).id]
+                env.renderer.update_scene(env.data, camera=env.camera)
+            else:
+                env.renderer.update_scene(env.data, camera=env.viewer.cam)
+            img = env.renderer.render()
+            env.mp4_writer.append_data(img)
+        
         frame_idx += 1
         if frame_idx >= len(motion_root_pos):
             frame_idx = 0

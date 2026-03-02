@@ -10,8 +10,8 @@ def load_robot_motion(motion_file):
     Load robot motion data from a pickle file.
     """
     with open(motion_file, "rb") as f:
-        # motion_data = joblib.load(f)
-        motion_data = np.load(f, allow_pickle=True)
+        motion_data = joblib.load(f)
+        # motion_data = np.load(f, allow_pickle=True)
         # motion_data = torch.load(f)
         # motion_fps = motion_data["fps"]
         motion_fps = 30
@@ -19,22 +19,23 @@ def load_robot_motion(motion_file):
         # print(motion_data[motion_id]["caption"])
         # motion_root_pos = motion_data["root_pos"]
         # motion_root_rot = motion_data["root_rot"][:, [3, 0, 1, 2]] # from xyzw to wxyz
-        motion_root_pos = motion_data["joints"][:, 0, :]
-        motion_root_rot = motion_data["root_rot"][:, :] # from xyzw to wxyz
+        motion_root_pos = motion_data["g1_joints"][:, 0, :]
+        # motion_root_pos = motion_data["pred_g1_trans"]
+        motion_root_rot = motion_data["g1_root_ori"][:, :] # from xyzw to wxyz
         # motion_root_rot = motion_data["root_rot"] # from xyzw to wxyz
         dof_indices = list(range(0, 20)) + list(range(23, 26))
-        # joint_mapping = list([0, 6, 12,
-        #                   1, 7, 13,
-        #                   2, 8, 14,
-        #                   3, 9    , 15, 22,
-        #                   4, 10   , 16, 23,
-        #                   5, 11   , 17, 24,
-        #                             18, 25,
-        #                             19, 26,
-        #                             20, 27,
-        #                             21, 28])
-        motion_dof_pos = np.zeros((motion_data["root_rot"].shape[0], 29), dtype = np.float32)
-        motion_dof_pos[:, dof_indices] = motion_data["dof_pos"]
+        joint_mapping = list([0, 6, 12,
+                          1, 7, 13,
+                          2, 8, 14,
+                          3, 9    , 15, 22,
+                          4, 10   , 16, 23,
+                          5, 11   , 17, 24,
+                                    18, 25,
+                                    19, 26,
+                                    20, 27,
+                                    21, 28])
+        motion_dof_pos = np.zeros((motion_data["g1_root_ori"].shape[0], 29), dtype = np.float32)
+        motion_dof_pos[:, joint_mapping] = motion_data["g1_dof"]
     return motion_data, motion_fps, motion_root_pos, motion_root_rot, motion_dof_pos, None, None
 
 if __name__ == "__main__":

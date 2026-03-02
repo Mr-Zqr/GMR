@@ -18,10 +18,8 @@ def load_robot_motion(motion_file):
         # motion_id = 820
         # print(motion_data[motion_id]["caption"])
         # motion_root_pos = motion_data["root_pos"]
-        # motion_root_rot = motion_data["root_rot"][:, [3, 0, 1, 2]] # from xyzw to wxyz
         motion_root_pos = motion_data["body_pos_w"][:, 0, :]
-        motion_root_rot = motion_data["body_quat_w"][:, 0, :] # from xyzw to wxyz
-        # motion_root_rot = motion_data["root_rot"] # from xyzw to wxyz
+        motion_root_rot = motion_data["body_quat_w"][:, 0, :] 
         dof_indices = list(range(0, 20)) + list(range(23, 26))
         joint_mapping = list([0, 6, 12,
                           1, 7, 13,
@@ -35,7 +33,9 @@ def load_robot_motion(motion_file):
                                     21, 28])
         motion_dof_pos = np.zeros((motion_data["body_quat_w"].shape[0], 29), dtype = np.float32)
         motion_dof_pos[:, joint_mapping] = motion_data["joint_pos"]
-    return motion_data, motion_fps, motion_root_pos, motion_root_rot, motion_dof_pos, None, None
+        motion_body_pos = motion_data["body_pos_w"]
+        motion_body_rot = motion_data["body_quat_w"]
+    return motion_data, motion_fps, motion_root_pos, motion_root_rot, motion_dof_pos, motion_body_pos, motion_body_rot
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

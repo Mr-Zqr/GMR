@@ -19,9 +19,11 @@ def load_robot_motion(motion_file):
     with open(motion_file, "rb") as f:
         motion_data = np.load(f, allow_pickle=True)
         motion_fps = 30
-        g1_trans = to_numpy(motion_data["gt_trans"])
+        g1_trans = to_numpy(motion_data["g1_trans"])
         motion_root_pos = g1_trans[:, 0, :] if g1_trans.ndim == 3 else g1_trans
-        motion_root_rot = to_numpy(motion_data["gt_g1_root_ori_quat"])  # xyzw -> wxyz
+        # motion_root_rot = to_numpy(motion_data["g1_root_rot"])  # xyzw -> wxyz
+        motion_root_rot =to_numpy(motion_data["g1_root_rot"])  
+        # motion_root_rot = R.from_rotvec(to_numpy(motion_data["g1_root_rot"])).as_quat()[:, [3, 0, 1, 2]]  # axis-angle -> xyzw
         dof_indices = list(range(0, 20)) + list(range(23, 26))
         joint_mapping = list([0, 6, 12,
                           1, 7, 13,
@@ -33,8 +35,8 @@ def load_robot_motion(motion_file):
                                     19, 26,
                                     20, 27,
                                     21, 28])
-        motion_dof_pos = np.zeros((motion_data["gt_g1_dof"].shape[0], 29), dtype = np.float32)
-        motion_dof_pos[:, joint_mapping] = motion_data["gt_g1_dof"]
+        motion_dof_pos = np.zeros((motion_data["g1_dof"].shape[0], 29), dtype = np.float32)
+        motion_dof_pos[:, joint_mapping] = motion_data["g1_dof"]
     return motion_data, motion_fps, motion_root_pos, motion_root_rot, motion_dof_pos, None, None
 
 if __name__ == "__main__":
