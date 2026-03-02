@@ -12,8 +12,6 @@ def load_robot_motion(motion_file):
     with open(motion_file, "rb") as f:
         # motion_data = joblib.load(f)        
         motion_data = np.load(f, allow_pickle=True)
-        # motion_data = torch.load(f)
-        # motion_fps = motion_data["fps"]
         motion_fps = 50
         # motion_id = 820
         # print(motion_data[motion_id]["caption"])

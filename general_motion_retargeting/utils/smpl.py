@@ -219,7 +219,7 @@ def slerp(rot1, rot2, t):
     
     return R.from_quat(q)
 
-def get_smplx_data_offline_fast(smplx_data, body_model, smplx_output, tgt_fps=30):
+def get_smplx_data_offline_fast(smplx_data, body_model, smplx_output, tgt_fps=30, src_fps=None):
     """
     Must return a dictionary with the following structure:
     {
@@ -227,9 +227,14 @@ def get_smplx_data_offline_fast(smplx_data, body_model, smplx_output, tgt_fps=30
         "Spine": (position, orientation),
         ...
     }
+    src_fps: source FPS of the motion data. If None, tries smplx_data["mocap_frame_rate"],
+             falls back to 120.
     """
-    # src_fps = smplx_data["mocap_frame_rate"].item()
-    src_fps = 120
+    if src_fps is None:
+        if "mocap_frame_rate" in smplx_data:
+            src_fps = smplx_data["mocap_frame_rate"].item()
+        else:
+            src_fps = 120
     num_frames = smplx_data['trans'].shape[0]
     global_orient = smplx_output.global_orient.squeeze()
     full_body_pose = smplx_output.full_pose.reshape(num_frames, -1, 3)
