@@ -99,7 +99,9 @@ def split_pickle_file(input_pkl, output_dir):
         pred_data = {}
         gt_data = {}
         phuma_data = {}
-        
+
+        source_path = element.get('source_path', None)
+
         for key, value in element.items():
             if key.startswith('pred_'):
                 # Remove 'pred_' prefix for cleaner keys
@@ -119,6 +121,11 @@ def split_pickle_file(input_pkl, output_dir):
             #     # For keys without prefix, add to both
             #     pred_data[key] = value
             #     gt_data[key] = value
+
+        if source_path is not None:
+            for d in (pred_data, gt_data, phuma_data):
+                if d:
+                    d['source_path'] = source_path
         
         # Save pred file
         if pred_data:

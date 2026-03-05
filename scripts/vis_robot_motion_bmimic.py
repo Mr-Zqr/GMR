@@ -60,13 +60,12 @@ if __name__ == "__main__":
                             camera_follow=False,
                             record_video=args.record_video, video_path=args.video_path)
     
-    frame_idx = 0
-    while True:
-        env.step(motion_root_pos[frame_idx], 
-                motion_root_rot[frame_idx], 
-                motion_dof_pos[frame_idx], 
+    num_frames = len(motion_root_pos)
+    for frame_idx in range(num_frames):
+        running = env.step(motion_root_pos[frame_idx],
+                motion_root_rot[frame_idx],
+                motion_dof_pos[frame_idx],
                 rate_limit=True)
-        frame_idx += 1
-        if frame_idx >= len(motion_root_pos):
-            frame_idx = 0
+        if not running:
+            break
     env.close()

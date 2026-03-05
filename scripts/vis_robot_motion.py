@@ -153,7 +153,9 @@ def run_single(motion_file, robot_type, fps_override, key_root_pos, key_root_rot
 
     frame_idx = 0
     while True:
-        env.step(root_pos[frame_idx], root_rot[frame_idx], dof_pos[frame_idx], rate_limit=True)
+        running = env.step(root_pos[frame_idx], root_rot[frame_idx], dof_pos[frame_idx], rate_limit=True)
+        if not running:
+            break
         frame_idx = (frame_idx + 1) % n_frames
 
     env.close()

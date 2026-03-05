@@ -96,6 +96,9 @@ class RobotMotionViewer:
         
         if self.record_video:
             assert video_path is not None, "Please provide video path for recording"
+            # Ensure video path has .mp4 extension
+            if not os.path.splitext(video_path)[1]:
+                video_path = video_path + ".mp4"
             self.video_path = video_path
             video_dir = os.path.dirname(self.video_path)
             
@@ -182,6 +185,8 @@ class RobotMotionViewer:
                 geom.label = self.robot_label
                 self.viewer.user_scn.ngeom += 1
 
+            if not self.viewer.is_running():
+                return False
             self.viewer.sync()
             if rate_limit is True:
                 self.rate_limiter.sleep()
@@ -197,7 +202,8 @@ class RobotMotionViewer:
                 self.renderer.update_scene(self.data, camera=self.viewer.cam)
             img = self.renderer.render()
             self.mp4_writer.append_data(img)
-    
+        return True
+
     def close(self):
         if self.viewer is not None:
             self.viewer.close()

@@ -6,35 +6,47 @@ from aitviewer.models.smpl import SMPLLayer
 from aitviewer.configuration import CONFIG
 import torch
 import joblib
+import argparse
 
 CONFIG.smplx_models = '/home/amax/devel/GMR/assets/body_models/smplx/SMPLX_NEUTRAL.npz'
 CONFIG.playback_fps = 30
 
 if __name__ == '__main__':
-    # smpl_data = joblib.load('/home/amax/devel/dataset/jinitaimei/99360891-1-30032_scene_0_1775.pkl')[145]
-    smpl_data = joblib.load('/run/user/1000/gvfs/sftp:host=114.212.175.192,port=10063/home/zhaoqr/devel/neobot_neural_retarget/humanoid/data/tmp_data/zhaoqr/dataset/neobot/2_gmr_retarget_filtered-0105-0040/MotionUnion/fitness/000116.npz')
-    # smpl_data = np.load('/home/amax/devel/Neobot_project/neobot/1_filtered_smplx/MotionGV/folder3/200042.npz')
-    # smpl_beta = joblib.load( '/home/amax/devel/dataset/NeoBot/smpl_betas/shape_optimized_asap.pkl')
-    # body_pose = smpl_data['smpl_params_global']['body_pose'] # T, 63
-    # global_orient = smpl_data['smpl_params_global']['global_orient'] # T, 3
-    # transl = smpl_data['smpl_params_global']['transl'] # T, 3
+    parser = argparse.ArgumentParser(description='Visualize SMPL-X human motion')
+    parser.add_argument('--smplx_file', type=str, default='/home/amax/devel/dataset/NeoBot/1_filtered_smplx/Mirror_MotionGV/folder1/079786.npz',
+                        help='Path to SMPL-X .npz file')
+    parser.add_argument('--record_video', action='store_true', help='Export video instead of interactive view')
+    parser.add_argument('--video_path', type=str, default='videos/smpl_output.mp4', help='Output video path')
+    args = parser.parse_args()
 
-    body_pose = smpl_data['smplx_body_pose']
-    global_orient = smpl_data['smplx_global_orient']
-    transl = smpl_data['smplx_transl']
-    # smpl_beta = smpl_beta[0].detach().cpu().numpy().copy()
+    if args.record_video:
+        CONFIG.window_type = 'headless'
 
-    # Reshape from (T, 21, 3) to (T, 63) and (T, 1, 3) to (T, 3)
+    smpl_data = np.load(args.smplx_file)
+
+    body_pose = smpl_data['body_pose']
+    global_orient = smpl_data['global_orient']
+    transl = smpl_data['transl']
+
+    # Reshape from (T, 21, 3) to (T, 63)
     body_pose = body_pose.reshape(body_pose.shape[0], -1)
-    # global_orient = global_orient.squeeze(1)
 
     v = Viewer()
     smpl_seq = SMPLSequence(
-        smpl_layer=SMPLLayer(ext='npz'), 
+        smpl_layer=SMPLLayer(ext='npz'),
         poses_root=global_orient, # T, 3
         poses_body=body_pose, # T, 63
-        trans=transl, 
-        # betas = smpl_beta
+        trans=transl,
     )
     v.scene.add(smpl_seq)
-    v.run()
+    if args.record_video:
+        v._init_scene()
+        cam = v.scene.camera
+        new_target = cam.target.copy()
+        new_target[1] += 0.8  # y is up in aitviewer
+        dir_vec = cam.position - cam.target
+        cam.target = new_target
+        cam.position = new_target + dir_vec * 1.50  # pull back to 80% zoom
+        v.export_video(output_path=args.video_path)
+    else:
+        v.run()
