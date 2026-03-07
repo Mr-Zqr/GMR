@@ -4,7 +4,8 @@ Filter retargeted motion NPZ files (G1 robot) by quality.
 
 Checks for:
   1. Floating feet      - average foot clearance > threshold
-  2. Self-intersection  - MuJoCo collision detection between robot body meshes
+  2. Joint jumps        - single-frame joint position discontinuities (IK solver flips)
+  3. Self-intersection  - MuJoCo collision detection between robot body meshes
                           (excluding hands/wrist_yaw and rubber_hand)
 
 Outputs:
@@ -153,7 +154,18 @@ def check_motion(args_tuple):
     if clearance > cfg["float_threshold"]:
         issues["floating_feet"] = clearance
 
-    # -- 2. Self-intersection via MuJoCo collision detection -------------
+    # -- 2. Joint jump detection ------------------------------------------
+    joint_diff = np.abs(np.diff(joint_pos, axis=0))  # (N-1, 29)
+    max_jump_per_frame = joint_diff[2:].max(axis=1)   # skip first 2 transitions
+    n_jump_frames = int(np.sum(max_jump_per_frame > cfg["jump_threshold"]))
+    if n_jump_frames > 0:
+        max_jump = float(max_jump_per_frame.max())
+        issues["joint_jump"] = {
+            "max_jump_rad": round(max_jump, 4),
+            "n_jump_frames": n_jump_frames,
+        }
+
+    # -- 3. Self-intersection via MuJoCo collision detection -------------
     mujoco_dof = np.empty_like(joint_pos)
     mujoco_dof[:, G1_JOINT_MAPPING] = joint_pos
 
@@ -202,6 +214,8 @@ def main():
                         help="Mean foot clearance to flag as floating (m)")
     parser.add_argument("--cross_ratio",     type=float, default=0.05,
                         help="Fraction of frames with self-intersection to flag")
+    parser.add_argument("--jump_threshold",  type=float, default=0.5,
+                        help="Max per-frame joint position change (rad) to flag as joint jump")
     parser.add_argument("--skip_frames",     type=int,   default=2,
                         help="Check every N-th frame for collision (speed vs accuracy)")
     args = parser.parse_args()
@@ -223,6 +237,7 @@ def main():
 
     cfg = {
         "float_threshold": args.float_threshold,
+        "jump_threshold":  args.jump_threshold,
         "cross_ratio":     args.cross_ratio,
         "skip_frames":     args.skip_frames,
     }
@@ -240,7 +255,7 @@ def main():
             if err is not None:
                 bad_entries[path_str] = {"error": err}
                 continue
-            if "floating_feet" in issues or "self_intersection" in issues:
+            if "floating_feet" in issues or "joint_jump" in issues or "self_intersection" in issues:
                 bad_entries[path_str] = issues
             else:
                 valid_paths.append(path_str)
@@ -258,9 +273,10 @@ def main():
 
     # -- Write bad_motions.yaml --
     # Count per-issue
-    n_floating = sum(1 for v in bad_entries.values() if "floating_feet" in v)
-    n_self_int = sum(1 for v in bad_entries.values() if "self_intersection" in v)
-    n_errors   = sum(1 for v in bad_entries.values() if "error" in v)
+    n_floating    = sum(1 for v in bad_entries.values() if "floating_feet" in v)
+    n_joint_jump  = sum(1 for v in bad_entries.values() if "joint_jump" in v)
+    n_self_int    = sum(1 for v in bad_entries.values() if "self_intersection" in v)
+    n_errors      = sum(1 for v in bad_entries.values() if "error" in v)
 
     yaml_output = {
         "summary": {
@@ -268,6 +284,7 @@ def main():
             "valid":             n_valid,
             "bad":               n_bad,
             "floating_feet":     n_floating,
+            "joint_jump":        n_joint_jump,
             "self_intersection": n_self_int,
             "load_errors":       n_errors,
         },
@@ -284,6 +301,7 @@ def main():
     print(f"  Valid (pkl)       : {n_valid}")
     print(f"  Bad (yaml)        : {n_bad}")
     print(f"    floating_feet   : {n_floating}")
+    print(f"    joint_jump      : {n_joint_jump}")
     print(f"    self_intersection: {n_self_int}")
     print(f"    load_errors     : {n_errors}")
     print(f"  valid + bad       : {n_valid + n_bad}  (should == {total})")

@@ -157,8 +157,26 @@ if __name__ == "__main__":
     )
 
     tgt_fps = 50
+    if args.src_fps is not None:
+        src_fps_detected = float(args.src_fps)
+    elif "mocap_frame_rate" in smplx_data:
+        src_fps_detected = float(np.array(smplx_data["mocap_frame_rate"]).squeeze())
+    else:
+        src_fps_detected = 120.0
+
+    src_frame_count = int(np.asarray(smplx_data["trans"]).shape[0])
+    src_duration = src_frame_count / src_fps_detected if src_fps_detected > 0 else 0.0
+
     smplx_data_frames, aligned_fps = get_smplx_data_offline_fast(
         smplx_data, body_model, smplx_output, tgt_fps=tgt_fps, src_fps=args.src_fps
+    )
+    mapped_frame_count = len(smplx_data_frames)
+    mapped_duration = mapped_frame_count / aligned_fps if aligned_fps > 0 else 0.0
+
+    print(f"[debug] source_fps={src_fps_detected:.3f}, target_fps={float(tgt_fps):.3f}, aligned_fps={float(aligned_fps):.3f}")
+    print(
+        f"[debug] before_mapping: frames={src_frame_count}, duration={src_duration:.3f}s | "
+        f"after_mapping: frames={mapped_frame_count}, duration={mapped_duration:.3f}s"
     )
 
     if args.visualize_smplx:
@@ -184,6 +202,7 @@ if __name__ == "__main__":
         actual_human_height=actual_human_height,
         src_human="smplx",
         tgt_robot=args.robot,
+        verbose=False,
     )
 
     robot_motion_viewer = RobotMotionViewer(
@@ -223,9 +242,7 @@ if __name__ == "__main__":
             root_pos=qpos[:3],
             root_rot=qpos[3:7],
             dof_pos=qpos[7:],
-            human_motion_data=retarget.scaled_human_data,
-            human_pos_offset=np.array([0.0, 0.0, 0.0]),
-            show_human_body_name=False,
+            human_motion_data=None,
             rate_limit=args.rate_limit,
         )
 

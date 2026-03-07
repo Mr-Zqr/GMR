@@ -13,7 +13,7 @@ CONFIG.playback_fps = 30
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Visualize SMPL-X human motion')
-    parser.add_argument('--smplx_file', type=str, default='/home/amax/devel/dataset/NeoBot/1_filtered_smplx/Mirror_MotionGV/folder1/079786.npz',
+    parser.add_argument('--smplx_file', type=str, default='/home/amax/devel/dataset/NeoBot/1_filtered_smplx/Mirror_MotionLLAMA/hi4d/pair01/fight01/standard_smplx/P1.npz',
                         help='Path to SMPL-X .npz file')
     parser.add_argument('--record_video', action='store_true', help='Export video instead of interactive view')
     parser.add_argument('--video_path', type=str, default='videos/smpl_output.mp4', help='Output video path')

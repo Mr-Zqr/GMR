@@ -60,24 +60,92 @@ def load_smplx_file(smplx_file, smplx_body_model_path):
     #     return_full_pose=True,
     # )
 
-    num_frames = smplx_data["fullpose"].shape[0]
-    # smplx_transz = torch.tensor(smplx_data["trans_z"]).float()
-    # smplx_vel_xy = torch.tensor(smplx_data["velocity_xy"]).float()
-    # trans_xy = torch.cumsum(smplx_vel_xy, dim=0)
-    # body_pose = np.zeros((num_frames,63),dtype=float)
-    # body_pose[:,:57] = smplx_data["fullpose"][:,3:60]
-    # print(body_pose.shape)
-    smpl_body_pos = smplx_data["fullpose"][:,3:66]
-    # 生成一个绕x轴逆时针旋转90度的旋转矩阵
-    rotation_matrix = np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]])
-    # 对颈关节应用旋转 (joints 60:63 represent neck rotation in axis-angle)
-    # For each frame, apply the rotation: new_rot = rotation_matrix @ old_rot
-    # smpl_body_pos[:, 57:60] = (rotation_matrix @ smpl_body_pos[:, 57:60].T).T
+    def _extract_trackings_dict(npz_data):
+        if "trackings" not in npz_data:
+            return None
+        trackings = npz_data["trackings"]
+        if isinstance(trackings, np.ndarray) and trackings.dtype == object:
+            if trackings.shape == ():
+                trackings = trackings.item()
+            elif trackings.shape[0] > 0:
+                trackings = trackings[0]
+        return trackings if isinstance(trackings, dict) else None
+
+    def _to_axis_angle_global_orient(global_orient):
+        global_orient = np.asarray(global_orient)
+        if global_orient.ndim == 2 and global_orient.shape[1] == 3:
+            return global_orient
+        if global_orient.ndim == 3 and global_orient.shape[1:] == (3, 3):
+            return R.from_matrix(global_orient).as_rotvec()
+        if global_orient.ndim == 4 and global_orient.shape[1:] == (1, 3, 3):
+            return R.from_matrix(global_orient[:, 0]).as_rotvec()
+        raise ValueError(
+            f"Unsupported global_orient shape: {global_orient.shape}, expected (N,3) or rotation matrices"
+        )
+
+    def _to_axis_angle_body_pose(body_pose):
+        body_pose = np.asarray(body_pose)
+        if body_pose.ndim == 2 and body_pose.shape[1] >= 63:
+            return body_pose[:, :63]
+        if body_pose.ndim == 3 and body_pose.shape[1:] == (21, 3):
+            return body_pose.reshape(body_pose.shape[0], -1)
+        if body_pose.ndim == 4 and body_pose.shape[2:] == (3, 3):
+            body_pose_aa = R.from_matrix(body_pose[:, :21].reshape(-1, 3, 3)).as_rotvec()
+            return body_pose_aa.reshape(body_pose.shape[0], -1)
+        raise ValueError(
+            f"Unsupported body_pose/body_pos shape: {body_pose.shape}, expected (N,63), (N,21,3) or rotation matrices"
+        )
+
+    if "fullpose" in smplx_data and "trans" in smplx_data and "betas" in smplx_data:
+        smplx_trans = np.asarray(smplx_data["trans"], dtype=np.float32)
+        global_orient = np.asarray(smplx_data["fullpose"][:, :3], dtype=np.float32)
+        smpl_body_pos = np.asarray(smplx_data["fullpose"][:, 3:66], dtype=np.float32)
+        smplx_betas = np.asarray(smplx_data["betas"])
+        if "mocap_frame_rate" in smplx_data:
+            mocap_frame_rate = smplx_data["mocap_frame_rate"]
+        else:
+            mocap_frame_rate = np.array(120, dtype=np.int64)
+    else:
+        trackings = _extract_trackings_dict(smplx_data)
+        data_source = trackings if trackings is not None else smplx_data
+
+        transl_key = "transl" if "transl" in data_source else "trans"
+        body_pose_key = "body_pose" if "body_pose" in data_source else "body_pos"
+
+        required_keys = [transl_key, "global_orient", body_pose_key, "betas"]
+        for key in required_keys:
+            if key not in data_source:
+                raise KeyError(
+                    f"Missing key '{key}' in SMPL-X file: {smplx_file}. Available keys: {list(data_source.keys())}"
+                )
+
+        smplx_trans = np.asarray(data_source[transl_key], dtype=np.float32)
+        global_orient = _to_axis_angle_global_orient(data_source["global_orient"]).astype(np.float32)
+        smpl_body_pos = _to_axis_angle_body_pose(data_source[body_pose_key]).astype(np.float32)
+        smplx_betas = np.asarray(data_source["betas"]) 
+
+        if "mocap_frame_rate" in data_source:
+            mocap_frame_rate = np.array(data_source["mocap_frame_rate"]).squeeze()
+        elif "fps" in data_source:
+            mocap_frame_rate = np.array(data_source["fps"]).squeeze()
+        else:
+            mocap_frame_rate = np.array(30, dtype=np.int64)
+
+    num_frames = smplx_trans.shape[0]
+
+    smplx_betas = np.asarray(smplx_betas, dtype=np.float32)
+    if smplx_betas.ndim > 1:
+        smplx_betas = smplx_betas[0]
+    if smplx_betas.shape[0] < 16:
+        smplx_betas = np.pad(smplx_betas, (0, 16 - smplx_betas.shape[0]))
+    else:
+        smplx_betas = smplx_betas[:16]
+
     smplx_output = body_model(
-        betas=torch.tensor(smplx_data["betas"][:16]).float().view(1, -1), # (16,)
-        global_orient=torch.tensor(smplx_data["fullpose"][:,:3]).float(), # (N, 3)
+        betas=torch.tensor(smplx_betas).float().view(1, -1), # (16,)
+        global_orient=torch.tensor(global_orient).float(), # (N, 3)
         body_pose=torch.tensor(smpl_body_pos).float(), # (N, 63)
-        transl=torch.tensor(smplx_data["trans"]).float(), # (N, 3)
+        transl=torch.tensor(smplx_trans).float(), # (N, 3)
         left_hand_pose=torch.zeros(num_frames, 45).float(),
         right_hand_pose=torch.zeros(num_frames, 45).float(),
         jaw_pose=torch.zeros(num_frames, 3).float(),
@@ -86,17 +154,24 @@ def load_smplx_file(smplx_file, smplx_body_model_path):
         # expression=torch.zeros(num_frames, 10).float(),
         return_full_pose=True,
     )
-    
-    if len(smplx_data["betas"].shape)==1:
-        human_height = 1.66 + 0.1 * smplx_data["betas"][0]
+
+    if hasattr(smplx_data, "files"):
+        smplx_data_dict = {k: smplx_data[k] for k in smplx_data.files}
     else:
-        human_height = 1.66 + 0.1 * smplx_data["betas"][0, 0]
+        smplx_data_dict = dict(smplx_data)
+    smplx_data_dict["trans"] = smplx_trans
+    smplx_data_dict["mocap_frame_rate"] = np.array(mocap_frame_rate, dtype=np.int64)
+    
+    if len(smplx_betas.shape)==1:
+        human_height = 1.66 + 0.1 * smplx_betas[0]
+    else:
+        human_height = 1.66 + 0.1 * smplx_betas[0, 0]
     # if len(smplx_betas.shape)==1:
     #     human_height = 1.66 + 0.1 * smplx_betas[0]
     # else:
     #     human_height = 1.66 + 0.1 * smplx_betas[0, 0]
     
-    return smplx_data, body_model, smplx_output, human_height
+    return smplx_data_dict, body_model, smplx_output, human_height
 
 
 def load_gvhmr_pred_file(gvhmr_pred_file, smplx_body_model_path):

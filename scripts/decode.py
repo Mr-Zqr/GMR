@@ -56,11 +56,16 @@ def print_summary(data):
 
     elif isinstance(data, (list, tuple)):
         print(f"{type(data).__name__}[{len(data)}]")
-        if data:
-            print(f"  [0]: {brief_info(data[0])}")
-            if isinstance(data[0], dict):
-                for k, v in data[0].items():
+        n = min(3, len(data))  # default show up to 3
+        for i in range(n):
+            print(f"  [{i}]: {brief_info(data[i])}")
+            # If element is dict, print keys/shape
+            if isinstance(data[i], dict):
+                for k, v in data[i].items():
                     print(f"      '{k}': {brief_info(v)}")
+            # If element is list/tuple, print first element info
+            elif isinstance(data[i], (list, tuple)) and data[i]:
+                print(f"      [0]: {brief_info(data[i][0])}")
     else:
         print(brief_info(data))
 

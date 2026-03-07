@@ -73,21 +73,23 @@ def main():
     print(f"Loading pred pkl: {pred_file}")
     pred_data = joblib.load(pred_file)
     source_path = pred_data.get('source_path', '')
-    if not source_path:
-        print("ERROR: 'source_path' key not found in pred pkl")
-        sys.exit(1)
-    print(f"source_path: {source_path}")
+    has_source_path = bool(source_path)
+    gmr_path = None
+    smpl_path = None
+    if has_source_path:
+        print(f"source_path: {source_path}")
+        rel_path = extract_relative_path(source_path)
+        gmr_path = Path(args.gmr_base) / rel_path
+        smpl_path = Path(args.smpl_base) / rel_path
+        print(f"GMR path: {gmr_path}")
+        print(f"SMPL path: {smpl_path}")
 
-    rel_path = extract_relative_path(source_path)
-    gmr_path = Path(args.gmr_base) / rel_path
-    smpl_path = Path(args.smpl_base) / rel_path
-    print(f"GMR path: {gmr_path}")
-    print(f"SMPL path: {smpl_path}")
-
-    if not gmr_path.exists():
-        print(f"WARNING: GMR file not found: {gmr_path}")
-    if not smpl_path.exists():
-        print(f"WARNING: SMPL file not found: {smpl_path}")
+        if not gmr_path.exists():
+            print(f"WARNING: GMR file not found: {gmr_path}")
+        if not smpl_path.exists():
+            print(f"WARNING: SMPL file not found: {smpl_path}")
+    else:
+        print("WARNING: 'source_path' key not found in pred pkl, skip gmr/smpl visualization")
 
     os.makedirs(video_dir, exist_ok=True)
 
@@ -116,23 +118,27 @@ def main():
                 "--record_video", "--video_path", str(video_dir / f"{idx}_gt.mp4"),
             ],
         },
-        {
-            'label': 'gmr',
-            'cmd': [
-                PYTHON, str(SCRIPTS_DIR / "vis_robot_motion_bmimic.py"),
-                "--robot_motion_path", str(gmr_path),
-                "--record_video", "--video_path", str(video_dir / f"{idx}_gmr.mp4"),
-            ],
-        },
-        {
-            'label': 'smpl',
-            'cmd': [
-                PYTHON, str(SCRIPTS_DIR / "main_humanoid.py"),
-                "--smplx_file", str(smpl_path),
-                "--record_video", "--video_path", str(video_dir / f"{idx}_smpl.mp4"),
-            ],
-        },
     ]
+
+    if has_source_path:
+        cmds.extend([
+            {
+                'label': 'gmr',
+                'cmd': [
+                    PYTHON, str(SCRIPTS_DIR / "vis_robot_motion_bmimic.py"),
+                    "--robot_motion_path", str(gmr_path),
+                    "--record_video", "--video_path", str(video_dir / f"{idx}_gmr.mp4"),
+                ],
+            },
+            {
+                'label': 'smpl',
+                'cmd': [
+                    PYTHON, str(SCRIPTS_DIR / "main_humanoid.py"),
+                    "--smplx_file", str(smpl_path),
+                    "--record_video", "--video_path", str(video_dir / f"{idx}_smpl.mp4"),
+                ],
+            },
+        ])
 
     for entry in cmds:
         label = entry['label']
@@ -149,7 +155,11 @@ def main():
             print(f"WARNING: {label} recording exited with code {result.returncode}")
 
     print(f"\nDone. Videos written to: {video_dir}")
+    attempted_labels = {entry['label'] for entry in cmds}
     for label in ['pred', 'gt', 'gmr', 'smpl']:
+        if label not in attempted_labels:
+            print(f"  {idx}_{label}.mp4: SKIPPED")
+            continue
         p = video_dir / f"{idx}_{label}.mp4"
         status = "OK" if p.exists() else "MISSING"
         print(f"  {p.name}: {status}")
