@@ -2,13 +2,14 @@ import argparse
 import pathlib
 import os
 import time
+from multiprocessing import Pool
 
 import numpy as np
 import torch
 from scipy.spatial.transform import Rotation
 
 from general_motion_retargeting import GeneralMotionRetargeting as GMR
-from general_motion_retargeting import RobotMotionViewer
+from general_motion_retargeting import RobotMotionViewer, ROBOT_XML_DICT
 from general_motion_retargeting.utils.smpl import load_smplx_file, get_smplx_data_offline_fast
 from general_motion_retargeting.kinematics_model import KinematicsModel
 
@@ -45,6 +46,22 @@ G1_BMIMIC_BODY_NAMES = [
 ]
 
 G1_ROBOTS = {"unitree_g1", "unitree_g1_with_hands"}
+
+
+def retarget_segment(args):
+    """Worker: retarget one segment of frames in a separate process."""
+    segment_frames, actual_human_height, robot = args
+    retarget = GMR(
+        actual_human_height=actual_human_height,
+        src_human="smplx",
+        tgt_robot=robot,
+        verbose=False,
+    )
+    qpos_list = []
+    for frame in segment_frames:
+        qpos, _ = retarget.retarget(frame)
+        qpos_list.append(qpos.copy())
+    return qpos_list
 
 
 def build_bmimic_data(root_pos, root_rot_wxyz, dof_pos, fps, kinematics_model, tgt_robot):
@@ -147,16 +164,20 @@ if __name__ == "__main__":
     parser.add_argument("--viz_mode",
                         choices=["interactive", "animation", "grid"],
                         default="interactive")
+    parser.add_argument("--headless", default=False, action="store_true",
+                        help="Skip visualization, only retarget and save.")
+    parser.add_argument("--num_workers", type=int, default=None,
+                        help="Number of parallel workers (default: cpu_count). Set 1 to disable parallel.")
 
     args = parser.parse_args()
 
     SMPLX_FOLDER = HERE / ".." / "assets" / "body_models"
 
-    smplx_data, body_model, smplx_output, actual_human_height = load_smplx_file(
-        args.smplx_file, SMPLX_FOLDER
-    )
+    tgt_fps = 30
 
-    tgt_fps = 50
+    smplx_data, body_model, smplx_output, actual_human_height = load_smplx_file(
+        args.smplx_file, SMPLX_FOLDER, downsample_fps=tgt_fps
+    )
     if args.src_fps is not None:
         src_fps_detected = float(args.src_fps)
     elif "mocap_frame_rate" in smplx_data:
@@ -167,8 +188,10 @@ if __name__ == "__main__":
     src_frame_count = int(np.asarray(smplx_data["trans"]).shape[0])
     src_duration = src_frame_count / src_fps_detected if src_fps_detected > 0 else 0.0
 
+    # After downsample, smplx_data["mocap_frame_rate"] is already tgt_fps;
+    # don't pass args.src_fps here as it refers to the original pre-downsample rate.
     smplx_data_frames, aligned_fps = get_smplx_data_offline_fast(
-        smplx_data, body_model, smplx_output, tgt_fps=tgt_fps, src_fps=args.src_fps
+        smplx_data, body_model, smplx_output, tgt_fps=tgt_fps
     )
     mapped_frame_count = len(smplx_data_frames)
     mapped_duration = mapped_frame_count / aligned_fps if aligned_fps > 0 else 0.0
@@ -198,68 +221,101 @@ if __name__ == "__main__":
             print(f"[red]Cannot import visualize_smplx_simple: {e}[/red]")
             exit(1)
 
-    retarget = GMR(
-        actual_human_height=actual_human_height,
-        src_human="smplx",
-        tgt_robot=args.robot,
-        verbose=False,
-    )
+    # ── Retargeting ─────────────────────────────────────────────────────────
+    if args.headless:
+        # Headless mode: parallel segment retargeting, no visualization
+        segment_sec = 4
+        segment_size = int(segment_sec * aligned_fps)
+        segments = [smplx_data_frames[i:i + segment_size]
+                    for i in range(0, len(smplx_data_frames), segment_size)]
+        print(f"[info] Splitting {len(smplx_data_frames)} frames into {len(segments)} segments "
+              f"({segment_sec}s, {segment_size} frames each)")
 
-    robot_motion_viewer = RobotMotionViewer(
-        robot_type=args.robot,
-        motion_fps=aligned_fps,
-        transparent_robot=0,
-        record_video=args.record_video,
-        video_path=f"videos/{args.robot}_{os.path.splitext(os.path.basename(args.smplx_file))[0]}.mp4",
-    )
+        num_workers = args.num_workers or min(len(segments), os.cpu_count() or 1)
 
-    collecting = args.save_path is not None
-    if collecting:
-        qpos_list = []
-
-    fps_counter = 0
-    fps_start   = time.time()
-    i = 0
-
-    while True:
-        if args.loop:
-            i = (i + 1) % len(smplx_data_frames)
+        if num_workers > 1 and len(segments) > 1:
+            worker_args = [(seg, actual_human_height, args.robot) for seg in segments]
+            t0 = time.time()
+            with Pool(num_workers) as pool:
+                results = pool.map(retarget_segment, worker_args)
+            print(f"[info] Parallel retargeting done in {time.time() - t0:.1f}s with {num_workers} workers")
+            qpos_list = []
+            for seg_qpos in results:
+                qpos_list.extend(seg_qpos)
         else:
-            i += 1
-            if i >= len(smplx_data_frames):
-                break
-
-        fps_counter += 1
-        now = time.time()
-        if now - fps_start >= 2.0:
-            print(f"Retargeting FPS: {fps_counter / (now - fps_start):.1f}")
-            fps_counter = 0
-            fps_start   = now
-
-        qpos, _ = retarget.retarget(smplx_data_frames[i])
-
-        robot_motion_viewer.step(
-            root_pos=qpos[:3],
-            root_rot=qpos[3:7],
-            dof_pos=qpos[7:],
-            human_motion_data=None,
-            rate_limit=args.rate_limit,
+            # Single-worker sequential
+            retarget = GMR(
+                actual_human_height=actual_human_height,
+                src_human="smplx",
+                tgt_robot=args.robot,
+                verbose=False,
+            )
+            qpos_list = []
+            t0 = time.time()
+            for frame in smplx_data_frames:
+                qpos, _ = retarget.retarget(frame)
+                qpos_list.append(qpos.copy())
+            print(f"[info] Sequential retargeting done in {time.time() - t0:.1f}s")
+    else:
+        # Interactive mode: sequential retargeting with visualization
+        retarget = GMR(
+            actual_human_height=actual_human_height,
+            src_human="smplx",
+            tgt_robot=args.robot,
+            verbose=False,
         )
 
-        if collecting:
+        robot_motion_viewer = RobotMotionViewer(
+            robot_type=args.robot,
+            motion_fps=aligned_fps,
+            transparent_robot=0,
+            record_video=args.record_video,
+            video_path=f"videos/{args.robot}_{os.path.splitext(os.path.basename(args.smplx_file))[0]}.mp4",
+        )
+
+        qpos_list = []
+        fps_counter = 0
+        fps_start   = time.time()
+        i = 0
+
+        while True:
+            if args.loop:
+                i = (i + 1) % len(smplx_data_frames)
+            else:
+                i += 1
+                if i >= len(smplx_data_frames):
+                    break
+
+            fps_counter += 1
+            now = time.time()
+            if now - fps_start >= 2.0:
+                print(f"Retargeting FPS: {fps_counter / (now - fps_start):.1f}")
+                fps_counter = 0
+                fps_start   = now
+
+            qpos, _ = retarget.retarget(smplx_data_frames[i])
+
+            robot_motion_viewer.step(
+                root_pos=qpos[:3],
+                root_rot=qpos[3:7],
+                dof_pos=qpos[7:],
+                human_motion_data=None,
+                rate_limit=args.rate_limit,
+            )
+
             qpos_list.append(qpos.copy())
 
-    robot_motion_viewer.close()
+        robot_motion_viewer.close()
 
     # ── Save in bmimic format ────────────────────────────────────────────────
-    if collecting:
+    if args.save_path is not None:
         qpos_arr      = np.array(qpos_list)
         root_pos      = qpos_arr[:, :3].astype(np.float32)
         root_rot_wxyz = qpos_arr[:, 3:7].astype(np.float32)
         dof_pos       = qpos_arr[:, 7:].astype(np.float32)
 
         device = "cuda:0" if torch.cuda.is_available() else "cpu"
-        km = KinematicsModel(retarget.xml_file, device=device)
+        km = KinematicsModel(str(ROBOT_XML_DICT[args.robot]), device=device)
 
         motion_data = build_bmimic_data(
             root_pos, root_rot_wxyz, dof_pos, aligned_fps, km, args.robot

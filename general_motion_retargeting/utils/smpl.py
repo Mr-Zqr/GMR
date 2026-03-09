@@ -11,7 +11,7 @@ def load_smpl_file(smpl_file):
     smpl_data = np.load(smpl_file, allow_pickle=True)
     return smpl_data
 
-def load_smplx_file(smplx_file, smplx_body_model_path):
+def load_smplx_file(smplx_file, smplx_body_model_path, downsample_fps=None):
     smplx_data = np.load(smplx_file, allow_pickle=True)
     body_model = smplx.create(
         smplx_body_model_path,
@@ -110,9 +110,12 @@ def load_smplx_file(smplx_file, smplx_body_model_path):
         data_source = trackings if trackings is not None else smplx_data
 
         transl_key = "transl" if "transl" in data_source else "trans"
-        body_pose_key = "body_pose" if "body_pose" in data_source else "body_pos"
+        body_pose_key = "body_pose" if "body_pose" in data_source else (
+            "pose_body" if "pose_body" in data_source else "body_pos"
+        )
+        global_orient_key = "global_orient" if "global_orient" in data_source else "root_orient"
 
-        required_keys = [transl_key, "global_orient", body_pose_key, "betas"]
+        required_keys = [transl_key, global_orient_key, body_pose_key, "betas"]
         for key in required_keys:
             if key not in data_source:
                 raise KeyError(
@@ -120,7 +123,7 @@ def load_smplx_file(smplx_file, smplx_body_model_path):
                 )
 
         smplx_trans = np.asarray(data_source[transl_key], dtype=np.float32)
-        global_orient = _to_axis_angle_global_orient(data_source["global_orient"]).astype(np.float32)
+        global_orient = _to_axis_angle_global_orient(data_source[global_orient_key]).astype(np.float32)
         smpl_body_pos = _to_axis_angle_body_pose(data_source[body_pose_key]).astype(np.float32)
         smplx_betas = np.asarray(data_source["betas"]) 
 
@@ -132,6 +135,17 @@ def load_smplx_file(smplx_file, smplx_body_model_path):
             mocap_frame_rate = np.array(30, dtype=np.int64)
 
     num_frames = smplx_trans.shape[0]
+
+    # Optional: downsample raw arrays before body_model forward pass to save memory
+    src_fps = float(np.array(mocap_frame_rate).squeeze())
+    if downsample_fps is not None and src_fps > downsample_fps:
+        new_num_frames = max(1, int(num_frames * downsample_fps / src_fps))
+        indices = np.round(np.linspace(0, num_frames - 1, new_num_frames)).astype(int)
+        smplx_trans = smplx_trans[indices]
+        global_orient = global_orient[indices]
+        smpl_body_pos = smpl_body_pos[indices]
+        num_frames = new_num_frames
+        mocap_frame_rate = np.array(downsample_fps, dtype=np.int64)
 
     smplx_betas = np.asarray(smplx_betas, dtype=np.float32)
     if smplx_betas.ndim > 1:
