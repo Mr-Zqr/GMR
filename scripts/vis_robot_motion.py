@@ -51,7 +51,7 @@ def apply_joint_mapping(dof, n_dof=29):
 
 def load_motion(motion_file, fps_override=None,
                 key_root_pos=None, key_root_rot=None, key_dof=None,
-                joint_mapping=False):
+                joint_mapping=False, root_rot_xyzw=False):
     """
     Load motion file and return (root_pos, root_rot_wxyz, dof_pos, fps).
 
@@ -61,7 +61,11 @@ def load_motion(motion_file, fps_override=None,
     ext = os.path.splitext(motion_file)[1].lower()
     try:
         data = np.load(motion_file, allow_pickle=True)
-        _ = list(data.keys())  # trigger load for npz
+        # Unwrap 0-d object arrays (e.g. npy saved with np.save on a dict)
+        if isinstance(data, np.ndarray) and data.ndim == 0 and data.dtype == object:
+            data = data.item()
+        else:
+            _ = list(data.keys())  # trigger load for npz
     except Exception:
         import joblib
         data = joblib.load(motion_file)
@@ -82,9 +86,11 @@ def load_motion(motion_file, fps_override=None,
         raw = to_numpy(data[key_root_pos])
         root_pos = raw[:, 0, :] if raw.ndim == 3 else raw
         root_rot = to_numpy(data[key_root_rot])
+        if root_rot_xyzw:
+            root_rot = root_rot[:, [3, 0, 1, 2]]  # xyzw → wxyz
         dof_raw  = to_numpy(data[key_dof])
         dof_pos  = apply_joint_mapping(dof_raw) if joint_mapping else dof_raw.astype(np.float32)
-        fps = fps or 30
+        fps = fps or (float(data["fps"]) if "fps" in keys else 30)
         return root_pos, root_rot, dof_pos, fps
 
     # ── GMR standard {root_pos, root_rot(xyzw), dof_pos} ────────────────────
@@ -136,12 +142,12 @@ def load_motion(motion_file, fps_override=None,
 
 
 def run_single(motion_file, robot_type, fps_override, key_root_pos, key_root_rot,
-               key_dof, joint_mapping, record_video, video_path):
-    root_pos, root_rot, dof_pos, fps = load_motion(
-        motion_file, fps_override, key_root_pos, key_root_rot, key_dof, joint_mapping
+               key_dof, joint_mapping, root_rot_xyzw, record_video, video_path):
+    root_pos, root_rot, dof_pos_orig, fps = load_motion(
+        motion_file, fps_override, key_root_pos, key_root_rot, key_dof, joint_mapping, root_rot_xyzw
     )
     n_frames = len(root_pos)
-    print(f"\n[Info] Frames={n_frames}, FPS={fps}, dof_dim={dof_pos.shape[1]}")
+    print(f"\n[Info] Frames={n_frames}, FPS={fps}, dof_dim={dof_pos_orig.shape[1]}")
 
     env = RobotMotionViewer(
         robot_type=robot_type,
@@ -150,6 +156,18 @@ def run_single(motion_file, robot_type, fps_override, key_root_pos, key_root_rot
         record_video=record_video,
         video_path=video_path,
     )
+
+    # Auto-pad dof_pos with zeros if the robot expects more DOFs (e.g. wrist DOFs missing)
+    n_robot_dof = len(env.data.qpos) - 7
+    dof_pos = np.zeros((dof_pos_orig.shape[0], n_robot_dof), dtype=dof_pos_orig.dtype)
+    if dof_pos_orig.shape[1] < n_robot_dof:
+        # mask是一个[0, 1, 2, ..., 23, 26, 27, 28]的列表，表示dof_pos_orig中的哪些列对应于机器人关节的DOF
+        mask = list(range(0, 20)) + list(range(23, 26))
+        dof_pos[:, mask] = dof_pos_orig
+        print(f"[Info] Padded dof_pos.")
+    else:
+        dof_pos = dof_pos_orig[:, :n_robot_dof]
+        print(f"[Info] Truncated dof_pos to {n_robot_dof} DOF")
 
     frame_idx = 0
     while True:
@@ -162,7 +180,7 @@ def run_single(motion_file, robot_type, fps_override, key_root_pos, key_root_rot
 
 
 def run_batch(motion_dir, robot_type, fps_override, key_root_pos, key_root_rot,
-              key_dof, joint_mapping, video_dir):
+              key_dof, joint_mapping, root_rot_xyzw, video_dir):
     files = sorted(
         glob.glob(os.path.join(motion_dir, "*.pkl")) +
         glob.glob(os.path.join(motion_dir, "*.npz"))
@@ -180,7 +198,7 @@ def run_batch(motion_dir, robot_type, fps_override, key_root_pos, key_root_rot,
 
         try:
             root_pos, root_rot, dof_pos, fps = load_motion(
-                motion_file, fps_override, key_root_pos, key_root_rot, key_dof, joint_mapping
+                motion_file, fps_override, key_root_pos, key_root_rot, key_dof, joint_mapping, root_rot_xyzw
             )
         except Exception as e:
             print(f"  [Skip] {name}: {e}")
@@ -203,6 +221,14 @@ def run_batch(motion_dir, robot_type, fps_override, key_root_pos, key_root_rot,
             env.video_path = video_path
             env.motion_fps = fps
             env.mp4_writer = imageio.get_writer(video_path, fps=fps)
+
+        # Auto-pad/truncate dof_pos to match robot's DOF count
+        n_robot_dof = len(env.data.qpos) - 7
+        if dof_pos.shape[1] < n_robot_dof:
+            pad = np.zeros((dof_pos.shape[0], n_robot_dof - dof_pos.shape[1]), dtype=dof_pos.dtype)
+            dof_pos = np.concatenate([dof_pos, pad], axis=1)
+        elif dof_pos.shape[1] > n_robot_dof:
+            dof_pos = dof_pos[:, :n_robot_dof]
 
         for i in range(len(root_pos)):
             env.step(root_pos[i], root_rot[i], dof_pos[i], rate_limit=False)
@@ -239,6 +265,9 @@ if __name__ == "__main__":
     # Joint mapping
     parser.add_argument("--joint_mapping", action="store_true", default=False,
                         help="Apply G1 joint reordering (for bmimic-style datasets)")
+    parser.add_argument("--xyzw", action="store_true", default=False,
+                        dest="root_rot_xyzw",
+                        help="Convert root rotation from xyzw to wxyz (manual key mode)")
 
     # Video
     parser.add_argument("--record_video", action="store_true")
@@ -255,7 +284,7 @@ if __name__ == "__main__":
         run_single(
             args.robot_motion_path, args.robot, args.fps,
             args.key_root_pos, args.key_root_rot, args.key_dof,
-            args.joint_mapping, args.record_video, args.video_path,
+            args.joint_mapping, args.root_rot_xyzw, args.record_video, args.video_path,
         )
     else:
         if not os.path.isdir(args.robot_motion_dir):
@@ -263,5 +292,5 @@ if __name__ == "__main__":
         run_batch(
             args.robot_motion_dir, args.robot, args.fps,
             args.key_root_pos, args.key_root_rot, args.key_dof,
-            args.joint_mapping, args.video_dir,
+            args.joint_mapping, args.root_rot_xyzw, args.video_dir,
         )

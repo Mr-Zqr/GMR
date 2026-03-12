@@ -3,7 +3,7 @@
     "human_root_name": "pelvis",
     "ground_height": 0.0,
     "human_height_assumption": 1.8,
-    "use_ik_match_table1": false,
+    "use_ik_match_table1": true,
     "use_ik_match_table2": true,
     "human_scale_table": {
         "pelvis": 0.9,
@@ -155,7 +155,7 @@
         ],
         "left_shoulder_yaw_link": [
             "left_shoulder",
-            1,
+            0,
             10,
             [
                 0.0,
@@ -171,7 +171,7 @@
         ],
         "left_elbow_link": [
             "left_elbow",
-            1,
+            0,
             10,
             [
                 0.0,
@@ -187,7 +187,7 @@
         ],
         "left_wrist_yaw_link": [
             "left_wrist",
-            1,
+            0,
             10,
             [
                 0.0,
@@ -203,7 +203,7 @@
         ],
         "right_shoulder_yaw_link": [
             "right_shoulder",
-            1,
+            0,
             10,
             [
                 0.0,
@@ -219,7 +219,7 @@
         ],
         "right_elbow_link": [
             "right_elbow",
-            1,
+            0,
             10,
             [
                 0.0,
@@ -235,7 +235,7 @@
         ],
         "right_wrist_yaw_link": [
             "right_wrist",
-            1,
+            0,
             10,
             [
                 0.0,

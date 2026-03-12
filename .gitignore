@@ -28,6 +28,9 @@ coverage.xml
 *.swo
 *~
 
+pics*
+pics_phs*
+
 # OS
 .DS_Store
 .DS_Store?

@@ -44,6 +44,10 @@ def print_summary(data):
             print(f"  {k}: {brief_info(data[k])}")
 
     elif isinstance(data, np.ndarray):
+        if data.ndim == 0 and data.dtype == object:
+            print("NPY  0-d object array — unwrapped:")
+            print_summary(data.item())
+            return
         print(f"NPY  {brief_info(data)}")
 
     elif isinstance(data, dict):
@@ -128,7 +132,11 @@ def load_file(path):
     suffix = path.suffix.lower()
 
     if suffix in ('.npz', '.npy'):
-        return np.load(p, allow_pickle=True)
+        arr = np.load(p, allow_pickle=True)
+        # Unwrap 0-d object arrays — the real data lives inside
+        if isinstance(arr, np.ndarray) and arr.ndim == 0 and arr.dtype == object:
+            arr = arr.item()
+        return arr
 
     # pkl / joblib / other
     try:
