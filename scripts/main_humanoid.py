@@ -47,6 +47,10 @@ if __name__ == '__main__':
         transl = transl[:, [0, 2, 1]].copy().astype(np.float32)
         transl[:, 2] *= -1
 
+    # 降采样为原来的1/2
+    body_pose = body_pose[::2]
+    global_orient = global_orient[::2]
+    transl = transl[::2]
     v = Viewer()
     smpl_seq = SMPLSequence(
         smpl_layer=SMPLLayer(ext='npz'),

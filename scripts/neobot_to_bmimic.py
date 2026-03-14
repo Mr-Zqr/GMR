@@ -11,10 +11,34 @@ import pathlib
 import joblib
 import numpy as np
 import torch
-from scipy.spatial.transform import Rotation
+from scipy.spatial.transform import Rotation, Slerp
 
 from general_motion_retargeting import ROBOT_XML_DICT
 from general_motion_retargeting.kinematics_model import KinematicsModel
+
+
+def resample_motion(root_pos, root_rot_wxyz, dof_pos, src_fps, tgt_fps=50.0):
+    """Resample motion arrays from src_fps to tgt_fps using linear/SLERP interpolation."""
+    if abs(src_fps - tgt_fps) < 0.5:
+        return root_pos, root_rot_wxyz, dof_pos
+    N = root_pos.shape[0]
+    t_src = np.arange(N) / src_fps
+    duration = t_src[-1]
+    M = int(round(duration * tgt_fps)) + 1
+    t_tgt = np.clip(np.arange(M) / tgt_fps, 0.0, duration)
+
+    root_pos_new = np.stack(
+        [np.interp(t_tgt, t_src, root_pos[:, i]) for i in range(3)], axis=1
+    ).astype(np.float32)
+    dof_pos_new = np.stack(
+        [np.interp(t_tgt, t_src, dof_pos[:, i]) for i in range(dof_pos.shape[1])], axis=1
+    ).astype(np.float32)
+
+    root_rot_xyzw = root_rot_wxyz[:, [1, 2, 3, 0]]
+    slerp = Slerp(t_src, Rotation.from_quat(root_rot_xyzw))
+    root_rot_wxyz_new = slerp(t_tgt).as_quat()[:, [3, 0, 1, 2]].astype(np.float32)
+
+    return root_pos_new, root_rot_wxyz_new, dof_pos_new
 
 
 G1_BMIMIC_BODY_NAMES = [
@@ -34,6 +58,16 @@ G1_BMIMIC_BODY_NAMES = [
 ]
 
 
+joint_mapping = [0, 6, 12,
+                 1, 7, 13,
+                 2, 8, 14,
+                 3, 9, 15, 22,
+                 4, 10, 16, 23,
+                 5, 11, 17, 24,
+                 18, 25,
+                 19, 26,
+                 20, 27,
+                 21, 28]
 def build_bmimic_data(root_pos, root_rot_wxyz, dof_pos, fps, kinematics_model):
     """Convert robot qpos arrays to bmimic npz format dict.
 
@@ -46,7 +80,10 @@ def build_bmimic_data(root_pos, root_rot_wxyz, dof_pos, fps, kinematics_model):
     root_rot_xyzw = root_rot_wxyz[:, [1, 2, 3, 0]]
     root_pos_t = torch.from_numpy(root_pos).float().to(device)
     root_rot_t = torch.from_numpy(root_rot_xyzw).float().to(device)
-    dof_pos_t  = torch.from_numpy(dof_pos).float().to(device)
+    dof_pos_t_lab  = torch.from_numpy(dof_pos).float().to(device)
+    
+    dof_pos_t = torch.zeros((N, 29), dtype=torch.float32, device=device)
+    dof_pos_t[:, joint_mapping] = dof_pos_t_lab
 
     body_pos_all, body_rot_all = kinematics_model.forward_kinematics(
         root_pos_t, root_rot_t, dof_pos_t
@@ -142,7 +179,9 @@ def main():
             root_rot_wxyz = np.asarray(d["root_rot_quat"], dtype=np.float32)  # (N, 4) wxyz
             dof_pos       = np.asarray(d["dof"],           dtype=np.float32)  # (N, 29)
 
-            motion_data = build_bmimic_data(root_pos, root_rot_wxyz, dof_pos, args.fps, km)
+            tgt_fps = 50.0
+            root_pos, root_rot_wxyz, dof_pos = resample_motion(root_pos, root_rot_wxyz, dof_pos, args.fps, tgt_fps)
+            motion_data = build_bmimic_data(root_pos, root_rot_wxyz, dof_pos, tgt_fps, km)
             np.savez(str(out_path), **motion_data)
             print(f"  [ok] {rel}  frames={root_pos.shape[0]}")
             ok += 1
