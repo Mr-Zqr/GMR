@@ -109,3 +109,7 @@ tmp/
 motion_data/
 
 GVHMR/
+
+bad_motion_videos
+
+*.npz

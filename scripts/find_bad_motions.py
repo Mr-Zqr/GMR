@@ -24,6 +24,7 @@ Usage:
 
 import argparse
 import multiprocessing
+import os
 import pickle
 import sys
 from pathlib import Path
@@ -218,6 +219,12 @@ def main():
                         help="Max per-frame joint position change (rad) to flag as joint jump")
     parser.add_argument("--skip_frames",     type=int,   default=2,
                         help="Check every N-th frame for collision (speed vs accuracy)")
+    parser.add_argument("--record_videos",   action="store_true",
+                        help="After filtering, render videos of bad motions organised by issue type")
+    parser.add_argument("--video_dir",       default="bad_motion_videos",
+                        help="Root output dir for recorded bad-motion videos (default: bad_motion_videos)")
+    parser.add_argument("--smplx_dir",       default=None,
+                        help="Human SMPL-X source folder (default: sibling '1_filtered_smplx' of input_dir)")
     args = parser.parse_args()
 
     input_dir = Path(args.input_dir)
@@ -310,6 +317,113 @@ def main():
     print("=" * 60)
 
     assert n_valid + n_bad == total, f"BUG: valid({n_valid}) + bad({n_bad}) != total({total})"
+
+    if args.record_videos:
+        smplx_dir = Path(args.smplx_dir) if args.smplx_dir else input_dir.parent / "1_filtered_smplx"
+        video_dir = Path(args.video_dir)
+        print(f"\nRecording bad-motion videos to '{video_dir}' ...")
+        print(f"  Robot source : {input_dir}")
+        print(f"  Human source : {smplx_dir}")
+        _render_bad_videos(bad_entries, input_dir, smplx_dir, video_dir)
+        print("Video recording complete.")
+
+
+# ---------------------------------------------------------------------------
+# Video rendering helpers
+# ---------------------------------------------------------------------------
+
+_ISSUE_TYPES = ["floating_feet", "joint_jump", "self_intersection"]
+
+
+def _render_robot_video(npz_path: str, video_path: str):
+    """Render one bmimic-format NPZ to an MP4 using RobotMotionViewer."""
+    from general_motion_retargeting import RobotMotionViewer
+
+    data = np.load(npz_path)
+    root_pos  = data["body_pos_w"][:, 0, :]   # (N, 3)
+    root_rot  = data["body_quat_w"][:, 0, :]  # (N, 4) wxyz
+    joint_pos = data["joint_pos"]              # (N, 29) bmimic order
+    fps = float(data["fps"]) if "fps" in data else 50.0
+
+    dof_pos = np.zeros((joint_pos.shape[0], 29), dtype=np.float32)
+    dof_pos[:, G1_JOINT_MAPPING] = joint_pos
+
+    os.makedirs(os.path.dirname(video_path), exist_ok=True)
+    env = RobotMotionViewer(
+        robot_type="unitree_g1",
+        motion_fps=fps,
+        camera_follow=True,
+        record_video=True,
+        video_path=video_path,
+        headless=True,
+    )
+    for i in range(len(root_pos)):
+        env.step(root_pos[i], root_rot[i], dof_pos[i], rate_limit=False)
+    env.close()
+
+
+def _render_human_video(smplx_path: str, video_path: str):
+    """Render one SMPL-X NPZ to an MP4 via a fresh subprocess (aitviewer GL context is a singleton)."""
+    import subprocess
+    import sys
+
+    os.makedirs(os.path.dirname(video_path), exist_ok=True)
+    main_humanoid = str(SCRIPT_DIR / "main_humanoid.py")
+    cmd = [
+        sys.executable, main_humanoid,
+        "--smplx_file", smplx_path,
+        "--record_video",
+        "--video_path", video_path,
+        "--zup",
+    ]
+    env = os.environ.copy()
+    env['CUDA_VISIBLE_DEVICES'] = ''  # force CPU; avoids VRAM conflict with parent process
+    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr[-500:] if result.stderr else "subprocess failed")
+
+
+def _render_bad_videos(bad_entries: dict, input_dir: Path, smplx_dir: Path, video_dir: Path):
+    """
+    For each bad motion and each issue it has, render robot + human videos into:
+      <video_dir>/<issue_type>/robot/<rel_path>.mp4
+      <video_dir>/<issue_type>/human/<rel_path>.mp4
+    """
+    items = sorted(bad_entries.items())
+    total = len(items)
+    for idx, (path_str, issues) in enumerate(items, 1):
+        rel = os.path.relpath(path_str, str(input_dir))
+        rel_mp4 = os.path.splitext(rel)[0] + ".mp4"
+
+        active_issues = [t for t in _ISSUE_TYPES if t in issues]
+        if not active_issues:
+            continue  # only load-errors — skip
+
+        print(f"  [{idx}/{total}] {rel}  issues={active_issues}")
+
+        for issue_type in active_issues:
+            # ---- robot video ----
+            robot_video = str(video_dir / issue_type / "robot" / rel_mp4)
+            try:
+                _render_robot_video(path_str, robot_video)
+            except Exception as e:
+                print(f"    [WARN] robot render failed: {e}")
+
+            # ---- human video ----
+            smplx_path = str(smplx_dir / rel)
+            if not os.path.exists(smplx_path):
+                # Try .npz extension if rel already has one
+                smplx_path_alt = str(smplx_dir / (os.path.splitext(rel)[0] + ".npz"))
+                smplx_path = smplx_path_alt if os.path.exists(smplx_path_alt) else None
+
+            if smplx_path:
+                human_video = str(video_dir / issue_type / "human" / rel_mp4)
+                try:
+                    _render_human_video(smplx_path, human_video)
+                except Exception as e:
+                    print(f"    [WARN] human render failed: {e}")
+            else:
+                print(f"    [WARN] human smplx not found: {smplx_dir / rel}")
 
 
 if __name__ == "__main__":

@@ -52,7 +52,7 @@ def collect_motion_files(input_dir, ext=".npz"):
     return collected
 
 
-def process_single_file(robot_type, motion_file, video_path):
+def process_single_file(robot_type, motion_file, video_path, camera_azimuth=90):
     """
     Retarget and export one motion file to a video (headless).
     """
@@ -62,10 +62,11 @@ def process_single_file(robot_type, motion_file, video_path):
     env = RobotMotionViewer(
         robot_type=robot_type,
         motion_fps=motion_fps,
-        camera_follow=False,
+        camera_follow=True,
         record_video=True,
         video_path=video_path,
         headless=True,
+        camera_azimuth=camera_azimuth,
     )
 
     num_frames = len(motion_root_pos)
@@ -100,6 +101,8 @@ if __name__ == "__main__":
     parser.add_argument("--record_video", action="store_true")
     parser.add_argument("--video_path", type=str,
                         default="videos/example.mp4")
+    parser.add_argument("--azimuth", type=float, default=90,
+                        help="Camera azimuth in degrees (90=right side, 180=front, 270=left, 0=back)")
 
     args = parser.parse_args()
 
@@ -131,7 +134,7 @@ if __name__ == "__main__":
 
             print(f"[{i + 1}/{len(motion_files)}] {rel_path} -> {rel_video}")
             try:
-                process_single_file(robot_type, motion_file, video_path)
+                process_single_file(robot_type, motion_file, video_path, camera_azimuth=args.azimuth)
             except Exception as e:
                 print(f"  [ERROR] Skipped due to exception: {e}")
 
@@ -154,9 +157,10 @@ if __name__ == "__main__":
         env = RobotMotionViewer(
             robot_type=robot_type,
             motion_fps=motion_fps,
-            camera_follow=False,
+            camera_follow=True,
             record_video=args.record_video,
             video_path=args.video_path,
+            camera_azimuth=args.azimuth,
         )
 
         num_frames = len(motion_root_pos)

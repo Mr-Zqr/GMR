@@ -1,3 +1,4 @@
+import joblib
 import numpy as np
 import smplx
 import torch
@@ -12,7 +13,8 @@ def load_smpl_file(smpl_file):
     return smpl_data
 
 def load_smplx_file(smplx_file, smplx_body_model_path, downsample_fps=None):
-    smplx_data = np.load(smplx_file, allow_pickle=True)
+    # smplx_data = np.load(smplx_file, allow_pickle=True)
+    smplx_data = joblib.load(smplx_file)
     body_model = smplx.create(
         smplx_body_model_path,
         "smplx",
@@ -75,6 +77,8 @@ def load_smplx_file(smplx_file, smplx_body_model_path, downsample_fps=None):
         global_orient = np.asarray(global_orient)
         if global_orient.ndim == 2 and global_orient.shape[1] == 3:
             return global_orient
+        if global_orient.ndim == 3 and global_orient.shape[1] == 1 and global_orient.shape[2] == 3:
+            return global_orient[:, 0, :]
         if global_orient.ndim == 3 and global_orient.shape[1:] == (3, 3):
             return R.from_matrix(global_orient).as_rotvec()
         if global_orient.ndim == 4 and global_orient.shape[1:] == (1, 3, 3):
@@ -109,13 +113,14 @@ def load_smplx_file(smplx_file, smplx_body_model_path, downsample_fps=None):
         trackings = _extract_trackings_dict(smplx_data)
         data_source = trackings if trackings is not None else smplx_data
 
-        transl_key = "transl" if "transl" in data_source else "trans"
+        transl_key = "transl" if "transl" in data_source else "smpl_trans_wd"
         body_pose_key = "body_pose" if "body_pose" in data_source else (
-            "pose_body" if "pose_body" in data_source else "body_pos"
+            "pose_body" if "pose_body" in data_source else "smpl_body_pose"
         )
-        global_orient_key = "global_orient" if "global_orient" in data_source else "root_orient"
+        global_orient_key = "global_orient" if "global_orient" in data_source else "smpl_root_orient_wd"
 
-        required_keys = [transl_key, global_orient_key, body_pose_key, "betas"]
+
+        required_keys = [transl_key, global_orient_key, body_pose_key, "smpl_shapes"]
         for key in required_keys:
             if key not in data_source:
                 raise KeyError(
@@ -125,7 +130,7 @@ def load_smplx_file(smplx_file, smplx_body_model_path, downsample_fps=None):
         smplx_trans = np.asarray(data_source[transl_key], dtype=np.float32)
         global_orient = _to_axis_angle_global_orient(data_source[global_orient_key]).astype(np.float32)
         smpl_body_pos = _to_axis_angle_body_pose(data_source[body_pose_key]).astype(np.float32)
-        smplx_betas = np.asarray(data_source["betas"]) 
+        smplx_betas = np.asarray(data_source["smpl_shapes"]) 
 
         if "mocap_frame_rate" in data_source:
             mocap_frame_rate = np.array(data_source["mocap_frame_rate"]).squeeze()
@@ -295,20 +300,25 @@ def slerp(rot1, rot2, t):
     # If the inputs are too close, linearly interpolate
     if dot > 0.9995:
         return R.from_quat(q1 + t * (q2 - q1))
-    
+
+    dot = np.clip(dot, -1.0, 1.0)
+
     # Perform SLERP
     theta_0 = np.arccos(dot)
     theta = theta_0 * t
     sin_theta = np.sin(theta)
     sin_theta_0 = np.sin(theta_0)
-    
+
+    if abs(sin_theta_0) < 1e-10:
+        return R.from_quat(q1 + t * (q2 - q1))
+
     s0 = np.cos(theta) - dot * sin_theta / sin_theta_0
     s1 = sin_theta / sin_theta_0
     q = s0 * q1 + s1 * q2
-    
+
     return R.from_quat(q)
 
-def get_smplx_data_offline_fast(smplx_data, body_model, smplx_output, tgt_fps=30, src_fps=None):
+def get_smplx_data_offline_fast(smplx_data, body_model, smplx_output, tgt_fps=30, src_fps=None, yup_to_zup=False):
     """
     Must return a dictionary with the following structure:
     {
@@ -318,6 +328,7 @@ def get_smplx_data_offline_fast(smplx_data, body_model, smplx_output, tgt_fps=30
     }
     src_fps: source FPS of the motion data. If None, tries smplx_data["mocap_frame_rate"],
              falls back to 120.
+    yup_to_zup: if True, rotate all joints from y-up to z-up coordinate system.
     """
     if src_fps is None:
         if "mocap_frame_rate" in smplx_data:
@@ -402,6 +413,16 @@ def get_smplx_data_offline_fast(smplx_data, body_model, smplx_output, tgt_fps=30
 
 
         smplx_data_frames.append(result)
+
+    if yup_to_zup:
+        # Rotate from y-up to z-up: x→x, y→-z, z→y  (rotate +90° around X axis)
+        rotation_matrix = np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]], dtype=np.float64)
+        rotation_quat = R.from_matrix(rotation_matrix).as_quat(scalar_first=True)
+        for result in smplx_data_frames:
+            for joint_name in result.keys():
+                orientation = utils.quat_mul(rotation_quat, result[joint_name][1])
+                position = result[joint_name][0] @ rotation_matrix.T
+                result[joint_name] = (position, orientation)
 
     return smplx_data_frames, aligned_fps
 

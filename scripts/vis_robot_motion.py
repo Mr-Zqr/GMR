@@ -22,6 +22,28 @@ import glob
 from tqdm import tqdm
 
 
+# Key bodies per robot for joint sphere visualization (one per joint area)
+ROBOT_KEY_BODIES = {
+    "unitree_g1": [
+        "pelvis",
+        "torso_link",
+        "head_link",
+        "left_shoulder_pitch_link",
+        "left_elbow_link",
+        "left_rubber_hand",
+        "right_shoulder_pitch_link",
+        "right_elbow_link",
+        "right_rubber_hand",
+        "left_hip_pitch_link",
+        "left_knee_link",
+        "left_ankle_pitch_link",
+        "right_hip_pitch_link",
+        "right_knee_link",
+        "right_ankle_pitch_link",
+    ],
+}
+
+
 # G1 29-DOF joint reordering used in bmimic-style datasets
 G1_JOINT_MAPPING = [
     0, 6, 12,
@@ -142,19 +164,27 @@ def load_motion(motion_file, fps_override=None,
 
 
 def run_single(motion_file, robot_type, fps_override, key_root_pos, key_root_rot,
-               key_dof, joint_mapping, root_rot_xyzw, record_video, video_path):
+               key_dof, joint_mapping, root_rot_xyzw, record_video, video_path,
+               camera_azimuth=90, show_joint_spheres=False, joint_sphere_radius=0.05,
+               white_background=False, key_joints=False):
     root_pos, root_rot, dof_pos_orig, fps = load_motion(
         motion_file, fps_override, key_root_pos, key_root_rot, key_dof, joint_mapping, root_rot_xyzw
     )
     n_frames = len(root_pos)
     print(f"\n[Info] Frames={n_frames}, FPS={fps}, dof_dim={dof_pos_orig.shape[1]}")
 
+    sphere_bodies = ROBOT_KEY_BODIES.get(robot_type) if key_joints else None
     env = RobotMotionViewer(
         robot_type=robot_type,
         motion_fps=fps,
         camera_follow=True,
         record_video=record_video,
         video_path=video_path,
+        camera_azimuth=camera_azimuth,
+        show_joint_spheres=show_joint_spheres,
+        joint_sphere_radius=joint_sphere_radius,
+        joint_sphere_bodies=sphere_bodies,
+        white_background=white_background,
     )
 
     # Auto-pad dof_pos with zeros if the robot expects more DOFs (e.g. wrist DOFs missing)
@@ -183,7 +213,7 @@ def run_batch(motion_dir, robot_type, fps_override, key_root_pos, key_root_rot,
               key_dof, joint_mapping, root_rot_xyzw, video_dir):
     files = sorted(
         glob.glob(os.path.join(motion_dir, "*.pkl")) +
-        glob.glob(os.path.join(motion_dir, "*.npz"))
+        glob.glob(os.path.join(motion_dir, "*.npy"))
     )
     if not files:
         raise FileNotFoundError(f"No .pkl/.npz files in '{motion_dir}'")
@@ -275,6 +305,17 @@ if __name__ == "__main__":
                         help="Output video path (single-file mode)")
     parser.add_argument("--video_dir", type=str, default="videos/batch",
                         help="Output video directory (batch mode)")
+    parser.add_argument("--azimuth", type=float, default=90,
+                        help="Camera azimuth in degrees (default: 90). "
+                             "90=right side, 180=front, 270=left side, 0/360=back")
+    parser.add_argument("--show_joint_spheres", action="store_true", default=False,
+                        help="Overlay blue spheres at each robot body/joint position")
+    parser.add_argument("--joint_sphere_radius", type=float, default=0.05,
+                        help="Radius of joint spheres in meters (default: 0.05)")
+    parser.add_argument("--key_joints", action="store_true", default=False,
+                        help="Only show spheres at key joint positions (one per joint area, e.g. shoulder/hip/ankle)")
+    parser.add_argument("--white_background", action="store_true", default=False,
+                        help="Set sky, haze, and floor to white for clean figure rendering")
 
     args = parser.parse_args()
 
@@ -285,6 +326,11 @@ if __name__ == "__main__":
             args.robot_motion_path, args.robot, args.fps,
             args.key_root_pos, args.key_root_rot, args.key_dof,
             args.joint_mapping, args.root_rot_xyzw, args.record_video, args.video_path,
+            camera_azimuth=args.azimuth,
+            show_joint_spheres=args.show_joint_spheres,
+            joint_sphere_radius=args.joint_sphere_radius,
+            white_background=args.white_background,
+            key_joints=args.key_joints,
         )
     else:
         if not os.path.isdir(args.robot_motion_dir):

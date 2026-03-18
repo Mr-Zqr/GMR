@@ -160,7 +160,7 @@ def build_bmimic_data(root_pos, root_rot_wxyz, dof_pos, fps, kinematics_model, t
 
 
 def process_file(smplx_file_path, tgt_file_path, tgt_robot, SMPLX_FOLDER,
-                 tgt_folder, total_files, src_fps, verbose=False):
+                 tgt_folder, total_files, src_fps, yup_to_zup=False, verbose=False):
 
     def log_memory(msg):
         if verbose:
@@ -191,10 +191,13 @@ def process_file(smplx_file_path, tgt_file_path, tgt_robot, SMPLX_FOLDER,
     tgt_fps = 50
     try:
         smplx_frames, aligned_fps = get_smplx_data_offline_fast(
-            smplx_data, body_model, smplx_output, tgt_fps=tgt_fps, src_fps=src_fps
+            smplx_data, body_model, smplx_output, tgt_fps=tgt_fps, src_fps=src_fps,
+            yup_to_zup=yup_to_zup
         )
     except Exception as e:
+        import traceback
         print(f"[ERROR] Preprocessing {smplx_file_path}: {e}")
+        traceback.print_exc()
         return
 
     retargeter = GMR(
@@ -255,7 +258,9 @@ def main():
     parser.add_argument("--tgt_folder", type=str, required=True)
     parser.add_argument("--src_fps",    type=int, default=None,
                         help="Source FPS (auto-detected from file if possible, default 120)")
-    parser.add_argument("--override",   default=False, action="store_true")
+    parser.add_argument("--override",    default=False, action="store_true")
+    parser.add_argument("--yup_to_zup", default=False, action="store_true",
+                        help="Rotate input SMPL data from y-up to z-up coordinate system")
     parser.add_argument("--num_cpus",   default=2, type=int)
     args = parser.parse_args()
 
@@ -300,14 +305,15 @@ def main():
                 continue
 
             args_list.append((smplx_file, tgt_file, args.robot,
-                               SMPLX_FOLDER, args.tgt_folder, args.src_fps))
+                               SMPLX_FOLDER, args.tgt_folder, args.src_fps, args.yup_to_zup))
 
     total = len(args_list)
     print(f"Files to process: {total}")
 
     with mp.Pool(args.num_cpus) as pool:
         pool.starmap(process_file,
-                     [a + (total, False) for a in args_list])
+                     [(smplx_file, tgt_file, robot, smplx_folder, tgt_folder, total, src_fps, yup_to_zup, False)
+                      for smplx_file, tgt_file, robot, smplx_folder, tgt_folder, src_fps, yup_to_zup in args_list])
 
     print("Done. Saved to", args.tgt_folder)
 
