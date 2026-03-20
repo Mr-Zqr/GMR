@@ -108,8 +108,8 @@ if __name__ == "__main__":
                         default="videos/example.mp4")
     parser.add_argument("--azimuth", type=float, default=90,
                         help="Camera azimuth in degrees (90=right side, 180=front, 270=left, 0=back)")
-    parser.add_argument("--width",  type=int, default=1920, help="Video width in pixels")
-    parser.add_argument("--height", type=int, default=1080, help="Video height in pixels")
+    parser.add_argument("--width",  type=int, default=2560, help="Video width in pixels")
+    parser.add_argument("--height", type=int, default=1440, help="Video height in pixels")
     parser.add_argument("--elevation", type=float, default=-10,
                         help="Camera elevation in degrees (more negative = more overhead, default -20)")
     parser.add_argument("--lookat_z_offset", type=float, default=-0.0,
