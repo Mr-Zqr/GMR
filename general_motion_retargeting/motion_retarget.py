@@ -227,6 +227,83 @@ class GeneralMotionRetargeting:
             
         return self.configuration.data.qpos.copy(), self.configuration.data.xpos.copy()
 
+    def retarget_with_trace(self, human_data, offset_to_ground=False):
+        """Like retarget(), but captures a snapshot at each IK iteration.
+
+        Returns:
+            trace: list of dicts with keys: phase, iteration, qpos, xpos, error, task_errors
+            scaled_human_data: processed target positions after scaling/offsets
+        """
+        self.update_targets(human_data, offset_to_ground)
+        trace = []
+
+        def _snapshot(phase, iteration, tasks, error_fn):
+            task_errors = {}
+            for task in tasks:
+                err_vec = task.compute_error(self.configuration)
+                task_errors[task.frame_name] = float(np.linalg.norm(err_vec))
+            trace.append({
+                "phase": phase,
+                "iteration": iteration,
+                "qpos": self.configuration.data.qpos.copy(),
+                "xpos": self.configuration.data.xpos.copy(),
+                "error": float(error_fn()),
+                "task_errors": task_errors,
+            })
+
+        # Initial state (before any IK)
+        active_tasks = self.tasks1 if self.use_ik_match_table1 else self.tasks2
+        error_fn = self.error1 if self.use_ik_match_table1 else self.error2
+        _snapshot(0, 0, active_tasks, error_fn)
+
+        if self.use_ik_match_table1:
+            curr_error = self.error1()
+            dt = self.configuration.model.opt.timestep
+            vel1 = mink.solve_ik(
+                self.configuration, self.tasks1, dt, self.solver, self.damping,
+                safety_break=True, limits=self.ik_limits
+            )
+            self.configuration.integrate_inplace(vel1, dt)
+            _snapshot(1, 0, self.tasks1, self.error1)
+            next_error = self.error1()
+            num_iter = 0
+            while curr_error - next_error > 0.001 and num_iter < self.max_iter:
+                curr_error = next_error
+                dt = self.configuration.model.opt.timestep
+                vel1 = mink.solve_ik(
+                    self.configuration, self.tasks1, dt, self.solver, self.damping,
+                    self.ik_limits
+                )
+                self.configuration.integrate_inplace(vel1, dt)
+                num_iter += 1
+                _snapshot(1, num_iter, self.tasks1, self.error1)
+                next_error = self.error1()
+
+        if self.use_ik_match_table2:
+            _snapshot(2, -1, self.tasks2, self.error2)  # state before phase 2 starts
+            curr_error = self.error2()
+            dt = self.configuration.model.opt.timestep
+            vel2 = mink.solve_ik(
+                self.configuration, self.tasks2, dt, self.solver, self.damping,
+                self.ik_limits
+            )
+            self.configuration.integrate_inplace(vel2, dt)
+            _snapshot(2, 0, self.tasks2, self.error2)
+            next_error = self.error2()
+            num_iter = 0
+            while curr_error - next_error > 0.001 and num_iter < self.max_iter:
+                curr_error = next_error
+                dt = self.configuration.model.opt.timestep
+                vel2 = mink.solve_ik(
+                    self.configuration, self.tasks2, dt, self.solver, self.damping,
+                    self.ik_limits
+                )
+                self.configuration.integrate_inplace(vel2, dt)
+                num_iter += 1
+                _snapshot(2, num_iter, self.tasks2, self.error2)
+                next_error = self.error2()
+
+        return trace, self.scaled_human_data
 
     def error1(self):
         return np.linalg.norm(

@@ -52,7 +52,8 @@ def collect_motion_files(input_dir, ext=".npz"):
     return collected
 
 
-def process_single_file(robot_type, motion_file, video_path, camera_azimuth=90):
+def process_single_file(robot_type, motion_file, video_path, camera_azimuth=90, video_width=1920, video_height=1080,
+                        camera_elevation=-20, camera_lookat_z_offset=-0.3):
     """
     Retarget and export one motion file to a video (headless).
     """
@@ -67,6 +68,10 @@ def process_single_file(robot_type, motion_file, video_path, camera_azimuth=90):
         video_path=video_path,
         headless=True,
         camera_azimuth=camera_azimuth,
+        video_width=video_width,
+        video_height=video_height,
+        camera_elevation=camera_elevation,
+        camera_lookat_z_offset=camera_lookat_z_offset,
     )
 
     num_frames = len(motion_root_pos)
@@ -103,6 +108,12 @@ if __name__ == "__main__":
                         default="videos/example.mp4")
     parser.add_argument("--azimuth", type=float, default=90,
                         help="Camera azimuth in degrees (90=right side, 180=front, 270=left, 0=back)")
+    parser.add_argument("--width",  type=int, default=1920, help="Video width in pixels")
+    parser.add_argument("--height", type=int, default=1080, help="Video height in pixels")
+    parser.add_argument("--elevation", type=float, default=-10,
+                        help="Camera elevation in degrees (more negative = more overhead, default -20)")
+    parser.add_argument("--lookat_z_offset", type=float, default=-0.0,
+                        help="Z offset below robot base for lookat point in meters (default -0.3)")
 
     args = parser.parse_args()
 
@@ -134,7 +145,10 @@ if __name__ == "__main__":
 
             print(f"[{i + 1}/{len(motion_files)}] {rel_path} -> {rel_video}")
             try:
-                process_single_file(robot_type, motion_file, video_path, camera_azimuth=args.azimuth)
+                process_single_file(robot_type, motion_file, video_path, camera_azimuth=args.azimuth,
+                                    video_width=args.width, video_height=args.height,
+                                    camera_elevation=args.elevation,
+                                    camera_lookat_z_offset=args.lookat_z_offset)
             except Exception as e:
                 print(f"  [ERROR] Skipped due to exception: {e}")
 
@@ -161,6 +175,10 @@ if __name__ == "__main__":
             record_video=args.record_video,
             video_path=args.video_path,
             camera_azimuth=args.azimuth,
+            video_width=args.width,
+            video_height=args.height,
+            camera_elevation=args.elevation,
+            camera_lookat_z_offset=args.lookat_z_offset,
         )
 
         num_frames = len(motion_root_pos)

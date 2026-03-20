@@ -168,6 +168,8 @@ if __name__ == "__main__":
                         help="Skip visualization, only retarget and save.")
     parser.add_argument("--num_workers", type=int, default=None,
                         help="Number of parallel workers (default: cpu_count). Set 1 to disable parallel.")
+    parser.add_argument("--yup_to_zup", default=False, action="store_true",
+                        help="Rotate SMPL joints from y-up to z-up before retargeting (for datasets in y-up convention).")
 
     args = parser.parse_args()
 
@@ -191,7 +193,7 @@ if __name__ == "__main__":
     # After downsample, smplx_data["mocap_frame_rate"] is already tgt_fps;
     # don't pass args.src_fps here as it refers to the original pre-downsample rate.
     smplx_data_frames, aligned_fps = get_smplx_data_offline_fast(
-        smplx_data, body_model, smplx_output, tgt_fps=tgt_fps
+        smplx_data, body_model, smplx_output, tgt_fps=tgt_fps, yup_to_zup=args.yup_to_zup
     )
     mapped_frame_count = len(smplx_data_frames)
     mapped_duration = mapped_frame_count / aligned_fps if aligned_fps > 0 else 0.0

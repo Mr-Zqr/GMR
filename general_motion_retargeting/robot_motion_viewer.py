@@ -55,10 +55,12 @@ class RobotMotionViewer:
                 # video recording
                 record_video=False,
                 video_path=None,
-                video_width=640,
-                video_height=480,
+                video_width=1920,
+                video_height=1080,
                 headless=False,
                 camera_azimuth=90,
+                camera_elevation=-5,
+                camera_lookat_z_offset=-0.3,
                 # joint sphere visualization
                 show_joint_spheres=False,
                 joint_sphere_color=None,
@@ -122,6 +124,8 @@ class RobotMotionViewer:
             self.viewer = None
         
         self.camera_azimuth = camera_azimuth
+        self.camera_elevation = camera_elevation
+        self.camera_lookat_z_offset = camera_lookat_z_offset
 
         if self.record_video:
             assert video_path is not None, "Please provide video path for recording"
@@ -133,8 +137,13 @@ class RobotMotionViewer:
 
             if not os.path.exists(video_dir):
                 os.makedirs(video_dir)
-            self.mp4_writer = imageio.get_writer(self.video_path, fps=self.motion_fps)
+            self.mp4_writer = imageio.get_writer(
+                self.video_path, fps=self.motion_fps, quality=9, macro_block_size=1)
             print(f"Recording video to {self.video_path}")
+
+            # Ensure MuJoCo offscreen framebuffer is large enough for the requested resolution
+            self.model.vis.global_.offwidth = max(self.model.vis.global_.offwidth, video_width)
+            self.model.vis.global_.offheight = max(self.model.vis.global_.offheight, video_height)
 
             # Initialize renderer for video recording
             self.renderer = mj.Renderer(self.model, height=video_height, width=video_width)
@@ -142,9 +151,11 @@ class RobotMotionViewer:
             # Set up camera for headless mode
             if self.headless:
                 self.camera = mj.MjvCamera()
-                self.camera.lookat = self.data.xpos[self.model.body(self.robot_base).id]
+                self.camera.type = mj.mjtCamera.mjCAMERA_FREE
+                self.camera.lookat[:] = self.data.xpos[self.model.body(self.robot_base).id]
+                self.camera.lookat[2] += self.camera_lookat_z_offset
                 self.camera.distance = self.viewer_cam_distance
-                self.camera.elevation = -10
+                self.camera.elevation = self.camera_elevation
                 self.camera.azimuth = self.camera_azimuth
         
     def step(self, 
@@ -198,9 +209,10 @@ class RobotMotionViewer:
 
         if not self.headless:
             if follow_camera:
-                self.viewer.cam.lookat = self.data.xpos[self.model.body(self.robot_base).id]
+                self.viewer.cam.lookat[:] = self.data.xpos[self.model.body(self.robot_base).id]
+                self.viewer.cam.lookat[2] += self.camera_lookat_z_offset
                 self.viewer.cam.distance = self.viewer_cam_distance
-                self.viewer.cam.elevation = -10
+                self.viewer.cam.elevation = self.camera_elevation
                 self.viewer.cam.azimuth = self.camera_azimuth
             
             if human_motion_data is not None:
@@ -241,7 +253,11 @@ class RobotMotionViewer:
             if self.headless:
                 # Update camera position for headless mode
                 if follow_camera:
-                    self.camera.lookat = self.data.xpos[self.model.body(self.robot_base).id]
+                    self.camera.lookat[:] = self.data.xpos[self.model.body(self.robot_base).id]
+                    self.camera.lookat[2] += self.camera_lookat_z_offset
+                    self.camera.distance = self.viewer_cam_distance
+                    self.camera.elevation = self.camera_elevation
+                    self.camera.azimuth = self.camera_azimuth
                 self.renderer.update_scene(self.data, camera=self.camera)
             else:
                 self.renderer.update_scene(self.data, camera=self.viewer.cam)

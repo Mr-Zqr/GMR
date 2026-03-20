@@ -13,8 +13,8 @@ def load_smpl_file(smpl_file):
     return smpl_data
 
 def load_smplx_file(smplx_file, smplx_body_model_path, downsample_fps=None):
-    # smplx_data = np.load(smplx_file, allow_pickle=True)
-    smplx_data = joblib.load(smplx_file)
+    smplx_data = np.load(smplx_file, allow_pickle=True)
+    # smplx_data = joblib.load(smplx_file)
     body_model = smplx.create(
         smplx_body_model_path,
         "smplx",
@@ -120,7 +120,7 @@ def load_smplx_file(smplx_file, smplx_body_model_path, downsample_fps=None):
         global_orient_key = "global_orient" if "global_orient" in data_source else "smpl_root_orient_wd"
 
 
-        required_keys = [transl_key, global_orient_key, body_pose_key, "smpl_shapes"]
+        required_keys = [transl_key, global_orient_key, body_pose_key, "betas"]
         for key in required_keys:
             if key not in data_source:
                 raise KeyError(
@@ -130,7 +130,7 @@ def load_smplx_file(smplx_file, smplx_body_model_path, downsample_fps=None):
         smplx_trans = np.asarray(data_source[transl_key], dtype=np.float32)
         global_orient = _to_axis_angle_global_orient(data_source[global_orient_key]).astype(np.float32)
         smpl_body_pos = _to_axis_angle_body_pose(data_source[body_pose_key]).astype(np.float32)
-        smplx_betas = np.asarray(data_source["smpl_shapes"]) 
+        smplx_betas = np.asarray(data_source["betas"], dtype=np.float32)
 
         if "mocap_frame_rate" in data_source:
             mocap_frame_rate = np.array(data_source["mocap_frame_rate"]).squeeze()
