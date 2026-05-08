@@ -61,6 +61,7 @@ class RobotMotionViewer:
                 camera_azimuth=90,
                 camera_elevation=-5,
                 camera_lookat_z_offset=-0.3,
+                camera_distance=None,  # override default distance from params
                 # joint sphere visualization
                 show_joint_spheres=False,
                 joint_sphere_color=None,
@@ -74,7 +75,7 @@ class RobotMotionViewer:
         self.model = mj.MjModel.from_xml_path(str(self.xml_path))
         self.data = mj.MjData(self.model)
         self.robot_base = ROBOT_BASE_DICT[robot_type]
-        self.viewer_cam_distance = VIEWER_CAM_DISTANCE_DICT[robot_type]
+        self.viewer_cam_distance = camera_distance if camera_distance is not None else VIEWER_CAM_DISTANCE_DICT[robot_type]
         
         # Set robot color if provided
         self.robot_color = robot_color if robot_color is not None else [0.8, 0.8, 0.8, 1.0]
@@ -117,15 +118,23 @@ class RobotMotionViewer:
                 model=self.model,
                 data=self.data,
                 show_left_ui=False,
-                show_right_ui=False)      
+                show_right_ui=False)
 
             self.viewer.opt.flags[mj.mjtVisFlag.mjVIS_TRANSPARENT] = transparent_robot
         else:
             self.viewer = None
-        
+
         self.camera_azimuth = camera_azimuth
         self.camera_elevation = camera_elevation
         self.camera_lookat_z_offset = camera_lookat_z_offset
+
+        # Initialize viewer camera position (for non-headless mode)
+        if not self.headless and self.viewer is not None:
+            self.viewer.cam.lookat[:] = self.data.xpos[self.model.body(self.robot_base).id]
+            self.viewer.cam.lookat[2] += self.camera_lookat_z_offset
+            self.viewer.cam.distance = self.viewer_cam_distance
+            self.viewer.cam.elevation = self.camera_elevation
+            self.viewer.cam.azimuth = self.camera_azimuth
 
         if self.record_video:
             assert video_path is not None, "Please provide video path for recording"
@@ -208,7 +217,7 @@ class RobotMotionViewer:
                 self.viewer.user_scn.ngeom += 1
 
         if not self.headless:
-            if follow_camera:
+            if follow_camera and self.camera_follow:
                 self.viewer.cam.lookat[:] = self.data.xpos[self.model.body(self.robot_base).id]
                 self.viewer.cam.lookat[2] += self.camera_lookat_z_offset
                 self.viewer.cam.distance = self.viewer_cam_distance
@@ -252,7 +261,7 @@ class RobotMotionViewer:
             # Use renderer for proper offscreen rendering
             if self.headless:
                 # Update camera position for headless mode
-                if follow_camera:
+                if follow_camera and self.camera_follow:
                     self.camera.lookat[:] = self.data.xpos[self.model.body(self.robot_base).id]
                     self.camera.lookat[2] += self.camera_lookat_z_offset
                     self.camera.distance = self.viewer_cam_distance

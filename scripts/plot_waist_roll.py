@@ -65,6 +65,14 @@ for label, path in files:
 ax.axhline(JOINT_LIMIT_LOWER, color="red", linestyle=":",  linewidth=4,
            label=f"lower limit ({JOINT_LIMIT_LOWER} rad)")
 
+# Annotate "sudden jump" on the GMR (green) curve — draggable
+ann = ax.annotate("sudden jump",
+            xy=(0.80, -1.3), xytext=(0.65, -1.75),
+            fontsize=15, color="red", fontweight="bold",
+            arrowprops=dict(arrowstyle="->", color="red", lw=2.5),
+            ha="center")
+ann.draggable()
+
 ax.set_xlabel("Time (s)", fontsize=15)
 ax.set_ylabel("R-Shoulder Roll (rad)", fontsize=15)
 ax.tick_params(axis='both', labelsize=15)

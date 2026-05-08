@@ -215,6 +215,18 @@ class MultiRobotMotionViewer:
             self.render_cam = mj.MjvCamera()
             self.render_opt = mj.MjvOption()
         
+        # Initialize camera once using first robot's first-frame position
+        mj.mj_forward(self.models[0], self.datas[0])
+        init_lookat = self.datas[0].xpos[self.models[0].body(self.robot_base).id].copy()
+        self.viewer.cam.lookat = init_lookat
+        self.viewer.cam.distance = self.viewer_cam_distance
+        self.viewer.cam.elevation = -10
+
+        if self.record_video:
+            self.render_cam.lookat = init_lookat.copy()
+            self.render_cam.distance = self.viewer_cam_distance
+            self.render_cam.elevation = -10
+
         # Rate limiter
         from loop_rate_limiters import RateLimiter
         self.rate_limiter = RateLimiter(frequency=self.motion_fps, warn=False)
@@ -270,21 +282,12 @@ class MultiRobotMotionViewer:
                 self.viewer.user_scn     # add to user scene
             )
         
-        # Update camera to follow first robot
-        self.viewer.cam.lookat = self.datas[0].xpos[self.models[0].body(self.robot_base).id]
-        self.viewer.cam.distance = self.viewer_cam_distance
-        self.viewer.cam.elevation = -10
-        
         self.viewer.sync()
         
         if rate_limit:
             self.rate_limiter.sleep()
         
         if self.record_video:
-            # Update camera settings
-            self.render_cam.lookat = self.datas[0].xpos[self.models[0].body(self.robot_base).id].copy()
-            self.render_cam.distance = self.viewer_cam_distance
-            self.render_cam.elevation = -10
             self.render_cam.azimuth = self.viewer.cam.azimuth  # Match viewer azimuth
             
             # Enable transparency in render options

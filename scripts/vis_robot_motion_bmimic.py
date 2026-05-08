@@ -53,7 +53,7 @@ def collect_motion_files(input_dir, ext=".npz"):
 
 
 def process_single_file(robot_type, motion_file, video_path, camera_azimuth=90, video_width=1920, video_height=1080,
-                        camera_elevation=-20, camera_lookat_z_offset=-0.3):
+                        camera_elevation=-5, camera_lookat_z_offset=-0.3, camera_distance=None):
     """
     Retarget and export one motion file to a video (headless).
     """
@@ -63,7 +63,7 @@ def process_single_file(robot_type, motion_file, video_path, camera_azimuth=90, 
     env = RobotMotionViewer(
         robot_type=robot_type,
         motion_fps=motion_fps,
-        camera_follow=True,
+        camera_follow=False,
         record_video=True,
         video_path=video_path,
         headless=True,
@@ -72,6 +72,7 @@ def process_single_file(robot_type, motion_file, video_path, camera_azimuth=90, 
         video_height=video_height,
         camera_elevation=camera_elevation,
         camera_lookat_z_offset=camera_lookat_z_offset,
+        camera_distance=camera_distance,
     )
 
     num_frames = len(motion_root_pos)
@@ -110,16 +111,18 @@ if __name__ == "__main__":
                         help="Camera azimuth in degrees (90=right side, 180=front, 270=left, 0=back)")
     parser.add_argument("--width",  type=int, default=2560, help="Video width in pixels")
     parser.add_argument("--height", type=int, default=1440, help="Video height in pixels")
-    parser.add_argument("--elevation", type=float, default=-10,
-                        help="Camera elevation in degrees (more negative = more overhead, default -20)")
+    parser.add_argument("--elevation", type=float, default=0,
+                        help="Camera elevation in degrees (0=horizon, more negative=more overhead, default -5)")
     parser.add_argument("--lookat_z_offset", type=float, default=-0.0,
-                        help="Z offset below robot base for lookat point in meters (default -0.3)")
+                        help="Z offset below robot base for lookat point in meters (default -0.0)")
+    parser.add_argument("--distance", type=float, default=2.5,
+                        help="Camera distance in meters, overrides per-robot default (default 4.0)")
 
     args = parser.parse_args()
 
     robot_type = args.robot
 
-    # ------------------------------------------------------------------ #
+    # ------------------------------------------------------------------ ouga
     # Directory batch mode                                                 #
     # ------------------------------------------------------------------ #
     if args.input_dir is not None:
@@ -148,7 +151,8 @@ if __name__ == "__main__":
                 process_single_file(robot_type, motion_file, video_path, camera_azimuth=args.azimuth,
                                     video_width=args.width, video_height=args.height,
                                     camera_elevation=args.elevation,
-                                    camera_lookat_z_offset=args.lookat_z_offset)
+                                    camera_lookat_z_offset=args.lookat_z_offset,
+                                    camera_distance=args.distance)
             except Exception as e:
                 print(f"  [ERROR] Skipped due to exception: {e}")
 
@@ -171,7 +175,7 @@ if __name__ == "__main__":
         env = RobotMotionViewer(
             robot_type=robot_type,
             motion_fps=motion_fps,
-            camera_follow=True,
+            camera_follow=False,
             record_video=args.record_video,
             video_path=args.video_path,
             camera_azimuth=args.azimuth,
@@ -179,6 +183,7 @@ if __name__ == "__main__":
             video_height=args.height,
             camera_elevation=args.elevation,
             camera_lookat_z_offset=args.lookat_z_offset,
+            camera_distance=args.distance,
         )
 
         num_frames = len(motion_root_pos)

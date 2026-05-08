@@ -194,6 +194,16 @@ def process_file(smplx_file_path, tgt_file_path, tgt_robot, SMPLX_FOLDER,
             smplx_data, body_model, smplx_output, tgt_fps=tgt_fps, src_fps=src_fps,
             yup_to_zup=yup_to_zup
         )
+        if yup_to_zup:
+            rot180z = Rotation.from_euler('z', 180, degrees=True)
+            for frame in smplx_frames:
+                for joint_name in frame.keys():
+                    pos, ori = frame[joint_name]
+                    # ori is scalar_first wxyz; convert to scipy xyzw, compose, convert back
+                    ori_r = Rotation.from_quat([ori[1], ori[2], ori[3], ori[0]])
+                    new_ori_xyzw = (rot180z * ori_r).as_quat()
+                    new_ori = np.array([new_ori_xyzw[3], *new_ori_xyzw[:3]])  # wxyz
+                    frame[joint_name] = (rot180z.apply(pos), new_ori)
     except Exception as e:
         import traceback
         print(f"[ERROR] Preprocessing {smplx_file_path}: {e}")

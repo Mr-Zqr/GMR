@@ -80,8 +80,12 @@ def build_bmimic_data(root_pos, root_rot_wxyz, dof_pos, fps, kinematics_model, t
     body_pos_all = body_pos_all.cpu().numpy()
     body_rot_all = body_rot_all.cpu().numpy()
 
-    # Height adjustment
-    z_min = float(np.min(body_pos_all[..., 2]))
+    # Height adjustment: use mode of per-frame z_min (rounded to 1cm) to avoid
+    # outlier frames (jumps/falls) pulling the floor estimate too low.
+    per_frame_z_min = np.min(body_pos_all[..., 2], axis=1)  # (N,)
+    rounded = np.round(per_frame_z_min, 2)
+    values, counts = np.unique(rounded, return_counts=True)
+    z_min = float(values[np.argmax(counts)])
     body_pos_all[:, :, 2] -= z_min
     root_pos = root_pos.copy()
     root_pos[:, 2] -= z_min
@@ -175,7 +179,7 @@ if __name__ == "__main__":
 
     SMPLX_FOLDER = HERE / ".." / "assets" / "body_models"
 
-    tgt_fps = 30
+    tgt_fps = 50
 
     smplx_data, body_model, smplx_output, actual_human_height = load_smplx_file(
         args.smplx_file, SMPLX_FOLDER, downsample_fps=tgt_fps
@@ -190,11 +194,28 @@ if __name__ == "__main__":
     src_frame_count = int(np.asarray(smplx_data["trans"]).shape[0])
     src_duration = src_frame_count / src_fps_detected if src_fps_detected > 0 else 0.0
 
-    # After downsample, smplx_data["mocap_frame_rate"] is already tgt_fps;
-    # don't pass args.src_fps here as it refers to the original pre-downsample rate.
+    # If the user specified --src_fps and no downsampling occurred (mocap_frame_rate != tgt_fps),
+    # override the stored fps so get_smplx_data_offline_fast uses the correct source fps.
+    stored_fps = float(np.array(smplx_data["mocap_frame_rate"]).squeeze())
+    if args.src_fps is not None and stored_fps != float(tgt_fps):
+        smplx_data["mocap_frame_rate"] = np.array(args.src_fps, dtype=np.int64)
+
     smplx_data_frames, aligned_fps = get_smplx_data_offline_fast(
         smplx_data, body_model, smplx_output, tgt_fps=tgt_fps, yup_to_zup=args.yup_to_zup
     )
+
+    # After yup_to_zup, rotate 180° around Z so the character faces the viewer
+    if args.yup_to_zup:
+        rot180z = Rotation.from_euler('z', 180, degrees=True)
+        for frame in smplx_data_frames:
+            for joint_name in frame.keys():
+                pos, ori = frame[joint_name]
+                # ori is scalar_first wxyz; convert to scipy xyzw, compose, convert back
+                ori_r = Rotation.from_quat([ori[1], ori[2], ori[3], ori[0]])
+                new_ori_xyzw = (rot180z * ori_r).as_quat()
+                new_ori = np.array([new_ori_xyzw[3], *new_ori_xyzw[:3]])  # wxyz
+                frame[joint_name] = (rot180z.apply(pos), new_ori)
+
     mapped_frame_count = len(smplx_data_frames)
     mapped_duration = mapped_frame_count / aligned_fps if aligned_fps > 0 else 0.0
 

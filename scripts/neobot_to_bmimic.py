@@ -68,7 +68,21 @@ joint_mapping = [0, 6, 12,
                  19, 26,
                  20, 27,
                  21, 28]
-def build_bmimic_data(root_pos, root_rot_wxyz, dof_pos, fps, kinematics_model):
+def rotate_root_180z(root_pos, root_rot_wxyz):
+    """Rotate root position and orientation 180° around global Z axis."""
+    root_pos = root_pos.copy()
+    root_pos[:, :2] *= -1.0
+
+    # q_new = q_rot180z * q_orig; 180° around Z: xyzw = [0, 0, 1, 0]
+    rot180z = Rotation.from_quat(np.array([0.0, 0.0, 1.0, 0.0], dtype=np.float32))
+    root_rot_xyzw = root_rot_wxyz[:, [1, 2, 3, 0]]
+    rots_new = rot180z * Rotation.from_quat(root_rot_xyzw)
+    root_rot_wxyz = rots_new.as_quat()[:, [3, 0, 1, 2]].astype(np.float32)
+
+    return root_pos, root_rot_wxyz
+
+
+def build_bmimic_data(root_pos, root_rot_wxyz, dof_pos, fps, kinematics_model, height_adjust=False):
     """Convert robot qpos arrays to bmimic npz format dict.
 
     dof_pos is used as-is for joint_pos (no reordering).
@@ -91,9 +105,15 @@ def build_bmimic_data(root_pos, root_rot_wxyz, dof_pos, fps, kinematics_model):
     body_pos_all = body_pos_all.cpu().numpy()
     body_rot_all = body_rot_all.cpu().numpy()
 
-    # NeoBot pkl comes from MuJoCo simulation and is already grounded (feet at z≈0).
-    # Do NOT apply z_min height adjustment — it would use KinematicsModel FK offsets
-    # which differ slightly from MuJoCo FK, causing feet to float after conversion.
+    if height_adjust:
+        per_frame_z_min = np.min(body_pos_all[..., 2], axis=1)
+        rounded = np.round(per_frame_z_min, 2)
+        values, counts = np.unique(rounded, return_counts=True)
+        z_min = float(values[np.argmax(counts)]) - 0.01
+        body_pos_all[:, :, 2] -= z_min
+        root_pos = root_pos.copy()
+        root_pos[:, 2] -= z_min
+    # else: NeoBot data already grounded from MuJoCo simulation; skip adjustment.
 
     # XY origin at first frame
     root_pos = root_pos.copy()
@@ -151,6 +171,10 @@ def main():
                         help="Frame rate of source pkl files (default: 50)")
     parser.add_argument("--robot", default="unitree_g1",
                         help="Robot name (default: unitree_g1)")
+    parser.add_argument("--rotate_180z", action="store_true",
+                        help="Rotate root pos/rot 180° around Z axis before resampling")
+    parser.add_argument("--height_adjust", action="store_true",
+                        help="Apply mode-based z_min height adjustment after FK (use when feet float)")
     args = parser.parse_args()
 
     input_dir  = pathlib.Path(args.input_dir)
@@ -180,8 +204,11 @@ def main():
             dof_pos       = np.asarray(d["dof"],           dtype=np.float32)  # (N, 29)
 
             tgt_fps = 50.0
+            if args.rotate_180z:
+                root_pos, root_rot_wxyz = rotate_root_180z(root_pos, root_rot_wxyz)
             root_pos, root_rot_wxyz, dof_pos = resample_motion(root_pos, root_rot_wxyz, dof_pos, args.fps, tgt_fps)
-            motion_data = build_bmimic_data(root_pos, root_rot_wxyz, dof_pos, tgt_fps, km)
+            motion_data = build_bmimic_data(root_pos, root_rot_wxyz, dof_pos, tgt_fps, km,
+                                             height_adjust=args.height_adjust)
             np.savez(str(out_path), **motion_data)
             print(f"  [ok] {rel}  frames={root_pos.shape[0]}")
             ok += 1
